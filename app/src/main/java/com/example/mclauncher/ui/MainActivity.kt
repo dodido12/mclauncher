@@ -22,6 +22,7 @@ import com.example.mclauncher.LauncherApp
 import com.example.mclauncher.auth.Account
 import com.example.mclauncher.auth.MicrosoftAuth
 import com.example.mclauncher.instance.GameEngine
+import com.example.mclauncher.instance.HdrSettings
 import com.example.mclauncher.instance.InstanceConfig
 import com.example.mclauncher.instance.LoaderType
 import com.example.mclauncher.instance.RendererType
@@ -57,6 +58,7 @@ private fun LauncherScreen(app: LauncherApp, launcher: MinecraftLauncher) {
     var modrinthFor by remember { mutableStateOf<InstanceConfig?>(null) }
     var logFor by remember { mutableStateOf<InstanceConfig?>(null) }
     var deleteFor by remember { mutableStateOf<InstanceConfig?>(null) }
+    var hdrFor by remember { mutableStateOf<InstanceConfig?>(null) }
     var pendingPkce by remember { mutableStateOf<MicrosoftAuth.Pkce?>(null) }
 
     LaunchedEffect(Unit) {
@@ -153,7 +155,7 @@ private fun LauncherScreen(app: LauncherApp, launcher: MinecraftLauncher) {
                     Card { Column(Modifier.padding(12.dp)) {
                         Text(inst.name, style = MaterialTheme.typography.titleSmall)
                         Text("${inst.minecraftVersion} · ${inst.loader.name.lowercase()} · ${inst.renderer} · ${inst.ramMb} MB" +
-                            (if (inst.hdr.enabled) " · HDR" else "") + " · motor " + engineLabel(inst.engine),
+                            (if (inst.hdr.enabled && inst.renderer != RendererType.GL4ES) " · HDR" else ""),
                             style = MaterialTheme.typography.bodySmall)
                     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
                         Button(enabled = selectedAccount != null && !busy, onClick = {
@@ -185,14 +187,7 @@ private fun LauncherScreen(app: LauncherApp, launcher: MinecraftLauncher) {
                         Spacer(Modifier.width(4.dp))
                         TextButton({ modrinthFor = inst }) { Text("Mods") }
                         TextButton({ logFor = inst }) { Text("Registro") }
-                        TextButton({
-                            scope.launch {
-                                val next = if (inst.engine == GameEngine.ZALITH) GameEngine.MCLAUNCHER else GameEngine.ZALITH
-                                app.instances.update(inst.id) { it.copy(engine = next) }
-                                instances = app.instances.list()
-                                status = "${inst.name}: motor ${engineLabel(next)}"
-                            }
-                        }, enabled = !busy) { Text("Motor") }
+                        TextButton({ hdrFor = inst }, enabled = !busy && inst.renderer != RendererType.GL4ES) { Text("HDR") }
                         TextButton({ deleteFor = inst }, enabled = !busy,
                             colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Borrar") }
                     } } }
@@ -214,13 +209,22 @@ private fun LauncherScreen(app: LauncherApp, launcher: MinecraftLauncher) {
     ) { name, ver, loader, renderer, hdr, ram, engine ->
         scope.launch {
             val c = app.instances.create(name, ver, loader, renderer = renderer, ramMb = ram)
-            app.instances.update(c.id) { it.copy(engine = engine) }
-            if (hdr) app.instances.update(c.id) { it.copy(hdr = it.hdr.copy(enabled = true)) }
+            app.instances.update(c.id) { it.copy(engine = GameEngine.ZALITH, hdr = it.hdr.copy(enabled = hdr && renderer != RendererType.GL4ES)) }
             instances = app.instances.list(); showCreate = false
         }
     }
     modrinthFor?.let { inst -> ModrinthDialog(app, inst) { modrinthFor = null } }
     logFor?.let { inst -> LogDialog(app, inst) { logFor = null } }
+    hdrFor?.let { inst ->
+        HdrCalibrationDialog(inst.hdr, onDismiss = { hdrFor = null }) { newHdr ->
+            scope.launch {
+                app.instances.update(inst.id) { it.copy(hdr = newHdr) }
+                instances = app.instances.list()
+                status = "HDR de ${inst.name}: " + if (newHdr.enabled) "blanco ${newHdr.paperWhiteNits.toInt()} nits, pico ${newHdr.maxLuminanceNits.toInt()} nits" else "desactivado"
+            }
+            hdrFor = null
+        }
+    }
     deleteFor?.let { inst ->
         AlertDialog(onDismissRequest = { deleteFor = null }, title = { Text("¿Borrar \"${inst.name}\"?") },
             text = { Text("Se borran sus mundos, mods, resourcepacks, shaders y ajustes. No se puede deshacer.") },
@@ -286,7 +290,7 @@ private fun CreateInstanceDialog(
     recommendedRam: Int, maxRam: Int, onDismiss: () -> Unit,
     onCreate: (String, String, LoaderType, RendererType, Boolean, Int, GameEngine) -> Unit
 ) {
-    var engine by remember { mutableStateOf(GameEngine.ZALITH) }
+    var hdrOn by remember { mutableStateOf(true) }
     val minRam = 1024
     val topRam = maxRam.coerceAtLeast(minRam + 512)
     var ram by remember { mutableFloatStateOf(recommendedRam.coerceIn(minRam, topRam).toFloat()) }
@@ -299,9 +303,13 @@ private fun CreateInstanceDialog(
             OutlinedTextField(name, { name = it }, label = { Text("Nombre") })
             OutlinedTextField(version, { version = it }, label = { Text("Versión de Minecraft") })
             Text("Loader"); Row { LoaderType.entries.forEach { l -> FilterChip(loader == l, { loader = l }, { Text(l.name.lowercase()) }) } }
-            Text("Renderizador"); Row { RendererType.entries.forEach { r -> FilterChip(renderer == r, { renderer = r }, { Text(r.name) }) } }
-            Text("Motor del juego"); Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                GameEngine.entries.forEach { e -> FilterChip(engine == e, { engine = e }, { Text(engineLabel(e)) }) }
+            Text("Renderizador"); Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                FilterChip(renderer == RendererType.ZINK_VULKAN, { renderer = RendererType.ZINK_VULKAN }, { Text("Zink (Vulkan)") })
+                FilterChip(renderer == RendererType.GL4ES, { renderer = RendererType.GL4ES }, { Text("gl4es (≤1.16)") })
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("HDR", modifier = Modifier.weight(1f))
+                Switch(checked = hdrOn && renderer != RendererType.GL4ES, onCheckedChange = { hdrOn = it }, enabled = renderer != RendererType.GL4ES)
             }
             val ramMb = (ram / 256f).roundToInt() * 256
             Text("RAM: $ramMb MB (${"%.1f".format(ramMb / 1024f)} GB)")
@@ -310,7 +318,7 @@ private fun CreateInstanceDialog(
                 "Más RAM no siempre es mejor: deja memoria para Android y la GPU.", style = MaterialTheme.typography.bodySmall)
         } },
         confirmButton = { Button({
-            onCreate(name, version, loader, renderer, renderer == RendererType.ZINK_VULKAN_HDR, (ram / 256f).roundToInt() * 256, engine)
+            onCreate(name, version, loader, renderer, hdrOn, (ram / 256f).roundToInt() * 256, GameEngine.ZALITH)
         }) { Text("Crear") } },
         dismissButton = { TextButton(onDismiss) { Text("Cancelar") } })
 }
@@ -343,7 +351,39 @@ private fun ModrinthDialog(app: LauncherApp, inst: InstanceConfig, onDismiss: ()
         confirmButton = { TextButton(onDismiss) { Text("Cerrar") } })
 }
 
-private fun engineLabel(e: GameEngine) = when (e) {
-    GameEngine.ZALITH -> "Zalith"
-    GameEngine.MCLAUNCHER -> "Propio"
+/** Calibración HDR (también se puede ajustar en vivo dentro del juego con el botón "HDR"). */
+@Composable
+private fun HdrCalibrationDialog(initial: HdrSettings, onDismiss: () -> Unit, onSave: (HdrSettings) -> Unit) {
+    val context = LocalContext.current
+    val panelPeak = remember {
+        @Suppress("DEPRECATION")
+        (context as? android.app.Activity)?.display?.hdrCapabilities?.desiredMaxLuminance?.takeIf { it > 0 } ?: 1000f
+    }
+    var enabled by remember { mutableStateOf(initial.enabled) }
+    var white by remember { mutableFloatStateOf(initial.paperWhiteNits.coerceIn(80f, 500f)) }
+    var peak by remember { mutableFloatStateOf(initial.maxLuminanceNits.coerceIn(200f, panelPeak.coerceAtLeast(400f))) }
+    var knee by remember { mutableFloatStateOf(initial.knee.coerceIn(0.3f, 0.9f)) }
+    AlertDialog(onDismissRequest = onDismiss, title = { Text("Calibración HDR") },
+        text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("HDR activado", modifier = Modifier.weight(1f)); Switch(enabled, { enabled = it })
+            }
+            Text("Tu pantalla: hasta ${panelPeak.toInt()} nits", style = MaterialTheme.typography.bodySmall)
+            Text("Blanco de referencia: ${white.toInt()} nits")
+            Slider(white, { white = it }, valueRange = 80f..500f, enabled = enabled)
+            Text("Brillo de menús, texto y objetos blancos normales. 203 = estándar; súbelo si el juego se ve oscuro.",
+                style = MaterialTheme.typography.bodySmall)
+            Text("Brillo máximo: ${peak.toInt()} nits")
+            Slider(peak, { peak = it.coerceAtLeast(white) }, valueRange = 200f..panelPeak.coerceAtLeast(400f), enabled = enabled)
+            Text("Hasta dónde pueden brillar el sol, el cielo, la lava y las antorchas.", style = MaterialTheme.typography.bodySmall)
+            Text("Inicio de las altas luces: ${(knee * 100).toInt()} %")
+            Slider(knee, { knee = it }, valueRange = 0.3f..0.9f, enabled = enabled)
+            Text("Más bajo = más partes de la imagen brillan por encima del blanco; más alto = solo lo más brillante.",
+                style = MaterialTheme.typography.bodySmall)
+            TextButton({ white = 203f; peak = minOf(1000f, panelPeak); knee = 0.6f }, enabled = enabled) { Text("Restablecer") }
+            Text("Dentro del juego, el botón HDR (arriba) abre estos mismos ajustes y se ven al instante.",
+                style = MaterialTheme.typography.bodySmall)
+        } },
+        confirmButton = { Button({ onSave(initial.copy(enabled = enabled, paperWhiteNits = white, maxLuminanceNits = maxOf(peak, white), knee = knee)) }) { Text("Guardar") } },
+        dismissButton = { TextButton(onDismiss) { Text("Cancelar") } })
 }

@@ -45,6 +45,7 @@ class ZalithGameActivity : Activity(), SurfaceHolder.Callback, InputManager.Inpu
     private lateinit var instanceDir: File
     private lateinit var surfaceView: SurfaceView
     private lateinit var touch: TouchControlsEngine
+    private lateinit var root: FrameLayout
     private var hdr: HdrDisplayManager? = null
     private val gamepads = GamepadManager()
     private var jvmStarted = false
@@ -88,7 +89,8 @@ class ZalithGameActivity : Activity(), SurfaceHolder.Callback, InputManager.Inpu
             isFocusable = true; isFocusableInTouchMode = true
         }
         touch = TouchControlsEngine(this, File(instanceDir, "controls.json"))
-        setContentView(FrameLayout(this).apply {
+        root = FrameLayout(this)
+        setContentView(root.apply {
             addView(surfaceView, FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
             addView(touch, FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
         })
@@ -99,6 +101,7 @@ class ZalithGameActivity : Activity(), SurfaceHolder.Callback, InputManager.Inpu
             val on = h.enableHdr(cfg.hdr.copy(enabled = spec.hdrEnabled), surfaceView.holder)
             if (on) surfaceView.holder.setFormat(PixelFormat.RGBA_F16)
             Log.i(TAG, "HDR ${if (on) "activo" else "inactivo"}")
+            if (on) addHdrCalibration(h)
         }
 
         CallbackBridge.grabListener = CallbackBridge.GrabListener { grabbing ->
@@ -110,6 +113,76 @@ class ZalithGameActivity : Activity(), SurfaceHolder.Callback, InputManager.Inpu
         touch.visibility = View.VISIBLE
         Log.i("Input", "Mandos detectados: " + gamepads.connectedGamepads().joinToString { "${it.name} (${it.id})" })
         Choreographer.getInstance().postFrameCallback(this)
+    }
+
+    /**
+     * Botón "HDR" arriba de la pantalla: abre un panel con la calibración que se aplica al
+     * instante (hdr_output.c reconstruye su tabla) y se guarda en la instancia al cerrarlo.
+     */
+    private fun addHdrCalibration(h: HdrDisplayManager) {
+        val dp = resources.displayMetrics.density
+        fun px(v: Int) = (v * dp).toInt()
+        var s = cfg.hdr
+        val panelPeak = h.panelPeakNits().coerceAtLeast(400f)
+
+        fun applyHdr() {
+            com.example.mclauncher.zalith.HdrBridge.setParams(s.paperScale, s.highlightHeadroom, s.knee)
+            h.updateHeadroom(s)
+        }
+
+        val panel = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setBackgroundColor(0xDD101418.toInt())
+            setPadding(px(16), px(12), px(16), px(12))
+            visibility = View.GONE
+            isClickable = true   // que los toques no lleguen al juego
+        }
+        fun slider(min: Float, max: Float, value: () -> Float, label: (Float) -> String, set: (Float) -> Unit) {
+            val text = android.widget.TextView(this).apply { setTextColor(0xFFFFFFFF.toInt()); textSize = 14f; text = label(value()) }
+            val bar = android.widget.SeekBar(this).apply {
+                this.max = 1000
+                progress = (((value() - min) / (max - min)) * 1000).toInt().coerceIn(0, 1000)
+                setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+                    override fun onProgressChanged(sb: android.widget.SeekBar, p: Int, fromUser: Boolean) {
+                        if (!fromUser) return
+                        val v = min + (max - min) * p / 1000f
+                        set(v); text.text = label(v); applyHdr()
+                    }
+                    override fun onStartTrackingTouch(sb: android.widget.SeekBar) = Unit
+                    override fun onStopTrackingTouch(sb: android.widget.SeekBar) = Unit
+                })
+            }
+            panel.addView(text); panel.addView(bar)
+        }
+        panel.addView(android.widget.TextView(this).apply {
+            setTextColor(0xFFFFFFFF.toInt()); textSize = 16f; text = "Calibración HDR (pantalla: ${panelPeak.toInt()} nits)"
+        })
+        slider(80f, 500f, { s.paperWhiteNits }, { "Blanco de referencia: ${it.toInt()} nits" }) {
+            s = s.copy(paperWhiteNits = it, maxLuminanceNits = maxOf(s.maxLuminanceNits, it))
+        }
+        slider(200f, panelPeak, { s.maxLuminanceNits }, { "Brillo máximo: ${it.toInt()} nits" }) {
+            s = s.copy(maxLuminanceNits = maxOf(it, s.paperWhiteNits))
+        }
+        slider(0.3f, 0.9f, { s.knee }, { "Inicio de las altas luces: ${(it * 100).toInt()} %" }) { s = s.copy(knee = it) }
+        panel.addView(android.widget.Button(this).apply {
+            text = "Listo"
+            setOnClickListener {
+                panel.visibility = View.GONE
+                val saved = s
+                Thread { runCatching { InstanceManager(this@ZalithGameActivity).update(cfg.id) { it.copy(hdr = saved) } } }.start()
+            }
+        })
+
+        val button = android.widget.TextView(this).apply {
+            text = "HDR"; textSize = 13f; setTextColor(0xFFFFFFFF.toInt())
+            setBackgroundColor(0x66000000)
+            setPadding(px(10), px(6), px(10), px(6))
+            setOnClickListener { panel.visibility = if (panel.visibility == View.VISIBLE) View.GONE else View.VISIBLE }
+        }
+        root.addView(panel, FrameLayout.LayoutParams(px(380), FrameLayout.LayoutParams.WRAP_CONTENT, android.view.Gravity.CENTER))
+        root.addView(button, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
+            android.view.Gravity.TOP or android.view.Gravity.CENTER_HORIZONTAL).apply { topMargin = px(8) })
+        button.translationX = -px(90).toFloat()   // a la izquierda del botón de chat
     }
 
     private fun hideSystemBars() {

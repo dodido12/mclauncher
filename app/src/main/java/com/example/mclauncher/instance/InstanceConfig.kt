@@ -59,8 +59,17 @@ data class HdrSettings(
     /** Blanco de referencia para UI/SDR (BT.2408 recomienda 203 nits). */
     val paperWhiteNits: Float = 203f,
     /** Pico objetivo; se recorta al máximo que reporte el panel. */
-    val maxLuminanceNits: Float = 1000f
-)
+    val maxLuminanceNits: Float = 1000f,
+    /** Luminancia lineal (0.2–0.95) donde empiezan a expandirse las altas luces. */
+    val knee: Float = 0.6f
+) {
+    /** Escala del blanco respecto al blanco de referencia del sistema (203 nits = 1.0). */
+    val paperScale: Float get() = (paperWhiteNits / 203f).coerceIn(0.3f, 4f)
+    /** Cuántas veces más que el blanco pueden brillar las altas luces. */
+    val highlightHeadroom: Float get() = (maxLuminanceNits / paperWhiteNits).coerceIn(1f, 16f)
+    /** Headroom total que se pide al sistema (pico / 203 nits). */
+    val systemHeadroom: Float get() = (maxLuminanceNits / 203f).coerceIn(1f, 16f)
+}
 
 @Serializable
 data class DisplaySettings(

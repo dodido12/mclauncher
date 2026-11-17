@@ -93,14 +93,22 @@ class MinecraftLauncher(
             // Motor Zalith: solo el Java de Android incluido en el APK (25) sirve con JLI_Launch de
             // libpojavexec; el de Termux depende de librerías que ese cargador no encuentra.
             // Minecraft 1.17–26.x corre bien sobre Java 25.
-            val rt = if (cfg.engine == GameEngine.ZALITH && required <= 25) JavaRuntime.JAVA_25
+            val rt = if (required <= 25) JavaRuntime.JAVA_25
                 else jre.effective(cfg.javaVersion?.takeIf { it.major >= required } ?: JavaRuntime.forRequiredMajor(required))
             jre.ensureInstalled(rt) { onProgress(it, 0.95f) }
             val javaHome = jre.homeOf(rt)
             val libjvm = jre.libjvmOf(rt)!!
 
             val gameDir = instances.gameDir(cfg.id)
-            val zalith = cfg.engine == GameEngine.ZALITH
+            // Solo se usa el motor Zalith (libpojavexec). El motor propio queda en el código pero no se ofrece.
+            if (cfg.engine != GameEngine.ZALITH || cfg.renderer == RendererType.ZINK_VULKAN_HDR) {
+                val hdr = cfg.renderer == RendererType.ZINK_VULKAN_HDR || cfg.hdr.enabled
+                cfg = cfg.copy(engine = GameEngine.ZALITH, renderer = if (cfg.renderer == RendererType.GL4ES) RendererType.GL4ES else RendererType.ZINK_VULKAN,
+                    hdr = cfg.hdr.copy(enabled = hdr))
+                val fixed = cfg
+                instances.update(cfg.id) { it.copy(engine = fixed.engine, renderer = fixed.renderer, hdr = fixed.hdr) }
+            }
+            val zalith = true
             val zalithNatives = if (zalith) {
                 onProgress("Preparando el motor Zalith…", 0.97f)
                 ZalithRuntime.ensureExtracted(context)
@@ -168,7 +176,7 @@ class MinecraftLauncher(
                 version.str("minecraftArguments")!!.split(' ').map { substitute(it, vars) }
             }
 
-            val hdrOn = cfg.hdr.enabled && cfg.renderer == RendererType.ZINK_VULKAN_HDR
+            val hdrOn = cfg.hdr.enabled && cfg.renderer != RendererType.GL4ES
             val spec = LaunchSpec(
                 instanceId = cfg.id,
                 javaHome = javaHome.absolutePath,
@@ -192,9 +200,7 @@ class MinecraftLauncher(
 
     fun start(cfg: InstanceConfig) {
         instances.markPlayed(cfg.id)
-        val engine = instances.load(cfg.id).engine
-        val activity = if (engine == GameEngine.ZALITH) ZalithGameActivity::class.java else GameActivity::class.java
-        context.startActivity(Intent(context, activity)
+        context.startActivity(Intent(context, ZalithGameActivity::class.java)
             .putExtra(GameActivity.EXTRA_INSTANCE, cfg.id)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
@@ -424,7 +430,9 @@ class MinecraftLauncher(
             "POJAV_ZINK_PREFER_SYSTEM_DRIVER" to "1",
             "POJAV_RENDERER" to if (gl4es) "opengles2" else "vulkan_zink",
             "MCL_HDR" to if (hdr && !gl4es) "1" else "0",
-            "MCL_HDR_HEADROOM" to (cfg.hdr.maxLuminanceNits / cfg.hdr.paperWhiteNits).coerceIn(1f, 8f).toString()
+            "MCL_HDR_PAPER" to cfg.hdr.paperScale.toString(),
+            "MCL_HDR_HEADROOM" to cfg.hdr.highlightHeadroom.toString(),
+            "MCL_HDR_KNEE" to cfg.hdr.knee.coerceIn(0.2f, 0.95f).toString()
         )
         if (gl4es) base += mapOf("LIBGL_ES" to "2", "LIBGL_MIPMAP" to "3", "LIBGL_NOERROR" to "1",
             "LIBGL_NOINTOVLHACK" to "1", "LIBGL_NORMALIZE" to "1")

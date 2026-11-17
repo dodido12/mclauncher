@@ -4,7 +4,13 @@
 [ZalithLauncher](https://github.com/ZalithLauncher/ZalithLauncher) / PojavLauncher, que es GPLv3;
 por eso todo el launcher se distribuye bajo GPLv3 y su código fuente debe publicarse junto al APK.
 
-## Motores de juego (por instancia, botón "Motor")
+## Motor de juego
+
+El launcher usa solo el motor **Zalith**. El motor propio sigue en el código (`app/src/main/cpp`,
+`GameActivity`) pero ya no se ofrece. **HDR**: activado por defecto con Zink; botón "HDR" en cada instancia
+y dentro del juego para calibrar blanco de referencia, brillo máximo e inicio de las altas luces (en vivo).
+
+### Motores disponibles en el código
 
 | Motor | Qué usa | HDR |
 |---|---|---|

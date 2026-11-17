@@ -70,7 +70,8 @@ class HdrDisplayManager(private val activity: Activity) {
 
         // Pico efectivo = min(lo pedido, lo que el panel declara)
         val peak = if (caps.maxLuminance > 0) minOf(settings.maxLuminanceNits, caps.maxLuminance) else settings.maxLuminanceNits
-        val headroom = (peak / settings.paperWhiteNits).coerceIn(1f, 10_000f)
+        // Headroom pedido al sistema: pico / blanco de referencia (203 nits)
+        val headroom = settings.copy(maxLuminanceNits = peak).systemHeadroom
         if (Build.VERSION.SDK_INT >= 35) setHeadroom35(headroom)
 
         NativeBridge.setHdrParams(
@@ -84,6 +85,16 @@ class HdrDisplayManager(private val activity: Activity) {
         if (Build.VERSION.SDK_INT >= 34) listenRatio34(settings)
         return true
     }
+
+    /** Calibración en vivo: vuelve a pedir el headroom para el nuevo pico. */
+    fun updateHeadroom(settings: HdrSettings) {
+        val caps = capabilities()
+        val peak = if (caps.maxLuminance > 0) minOf(settings.maxLuminanceNits, caps.maxLuminance) else settings.maxLuminanceNits
+        if (Build.VERSION.SDK_INT >= 35) setHeadroom35(settings.copy(maxLuminanceNits = peak).systemHeadroom)
+    }
+
+    /** Pico máximo que declara el panel (nits), o 1000 si no lo informa. */
+    fun panelPeakNits(): Float = capabilities().maxLuminance.takeIf { it > 0 } ?: 1000f
 
     @RequiresApi(35)
     private fun setHeadroom35(headroom: Float) {

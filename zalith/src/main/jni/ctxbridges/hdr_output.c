@@ -35,16 +35,31 @@ static float srgb_to_linear(float c) {
     return c <= 0.04045f ? c / 12.92f : powf((c + 0.055f) / 1.055f, 2.4f);
 }
 
-static void build_lut(float headroom) {
+/**
+ * paper   = escala del blanco SDR (1.0 = blanco de referencia del sistema, ~203 nits)
+ * headroom = cuánto más que el blanco pueden subir las altas luces (pico / blanco)
+ * knee    = luminancia lineal (0..1) donde empieza la expansión de altas luces
+ */
+static void build_lut(float paper, float headroom, float knee) {
+    uint16_t lut[256];
+    if (knee > 0.98f) knee = 0.98f;
     for (int i = 0; i < 256; ++i) {
         float lin = srgb_to_linear(i / 255.0f);
-        // smoothstep(0.6, 1.0, lin): 0 en medios tonos, 1 en el blanco
-        float t = (lin - 0.6f) / 0.4f;
+        // smoothstep(knee, 1.0, lin): 0 en medios tonos, 1 en el blanco
+        float t = (lin - knee) / (1.0f - knee);
         if (t < 0) t = 0; else if (t > 1) t = 1;
         t = t * t * (3.0f - 2.0f * t);
         float gain = 1.0f + (headroom - 1.0f) * t * t;
-        g_lut[i] = to_half(lin * gain);
+        lut[i] = to_half(lin * gain * paper);
     }
+    memcpy(g_lut, lut, sizeof lut);   // copia de una vez: el hilo de conversión ve la tabla vieja o la nueva
+}
+
+static float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
+
+static float env_float(const char* name, float def) {
+    const char* v = getenv(name);
+    return v ? strtof(v, NULL) : def;
 }
 
 bool hdr_enabled(void) {
@@ -52,12 +67,12 @@ bool hdr_enabled(void) {
         const char* e = getenv("MCL_HDR");
         g_enabled = (e && strcmp(e, "1") == 0) ? 1 : 0;
         if (g_enabled) {
-            const char* h = getenv("MCL_HDR_HEADROOM");
-            float headroom = h ? strtof(h, NULL) : 2.5f;
-            if (!(headroom >= 1.0f)) headroom = 1.0f;
-            if (headroom > 8.0f) headroom = 8.0f;
-            build_lut(headroom);
-            __android_log_print(ANDROID_LOG_INFO, TAG, "HDR activo (scRGB FP16), headroom %.2f", headroom);
+            float paper = clampf(env_float("MCL_HDR_PAPER", 1.0f), 0.3f, 4.0f);
+            float headroom = clampf(env_float("MCL_HDR_HEADROOM", 2.5f), 1.0f, 16.0f);
+            float knee = clampf(env_float("MCL_HDR_KNEE", 0.6f), 0.2f, 0.98f);
+            build_lut(paper, headroom, knee);
+            __android_log_print(ANDROID_LOG_INFO, TAG, "HDR activo (scRGB FP16): blanco x%.2f, altas luces x%.2f, inicio %.2f",
+                                paper, headroom, knee);
         }
     }
     return g_enabled == 1;
@@ -124,4 +139,14 @@ void hdr_present(const ANativeWindow_Buffer* dst) {
         }
     }
     for (int i = 0; i < HDR_THREADS; ++i) if (started & (1 << i)) pthread_join(th[i], NULL);
+}
+
+/** Calibración en vivo desde el juego (com.example.mclauncher.zalith.HdrBridge). */
+#include <jni.h>
+JNIEXPORT void JNICALL Java_com_example_mclauncher_zalith_HdrBridge_setParams(JNIEnv* env, jclass clazz,
+                                                                              jfloat paper, jfloat headroom, jfloat knee) {
+    (void) env; (void) clazz;
+    if (g_enabled != 1) return;   // sin consultar MCL_HDR: puede llamarse antes de que arranque la JVM
+    build_lut(clampf(paper, 0.3f, 4.0f), clampf(headroom, 1.0f, 16.0f), clampf(knee, 0.2f, 0.98f));
+    __android_log_print(ANDROID_LOG_INFO, TAG, "Calibración: blanco x%.2f, altas luces x%.2f, inicio %.2f", paper, headroom, knee);
 }
