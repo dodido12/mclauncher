@@ -49,6 +49,8 @@ class TouchControlsEngine(context: Context, private val layoutFile: File) : View
         data class Btn(val c: Control) : Owner()
         data object Stick : Owner()
         data class Look(var lastX: Float, var lastY: Float, val downAt: Long, var moved: Float = 0f, var holding: Boolean = false) : Owner()
+        /** Menús: el dedo mueve el cursor; tocar = clic al soltar; arrastrar = mantener clic (como Zalith). */
+        data class Menu(val startX: Float, val startY: Float, var pressed: Boolean = false) : Owner()
         data class Drag(val c: Control) : Owner()
     }
     private val owners = HashMap<Int, Owner>()
@@ -58,6 +60,7 @@ class TouchControlsEngine(context: Context, private val layoutFile: File) : View
 
     var lookSensitivity = 1.6f
     private val longPressMs = 220L
+    private val dragThresholdPx = 6f * context.resources.displayMetrics.density
     private val paintFill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val paintText = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textAlign = Paint.Align.CENTER }
 
@@ -121,11 +124,10 @@ class TouchControlsEngine(context: Context, private val layoutFile: File) : View
             c?.type == "JOYSTICK" -> { owners[pid] = Owner.Stick; updateStick(c, x, y) }
             c != null -> { owners[pid] = Owner.Btn(c); press(c, true); performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY) }
             !LwjglBridge.isCursorGrabbed() -> {
-                // Menú/inventario: cursor absoluto + clic izquierdo
+                // Menú/inventario: solo mover el cursor; el clic se decide al soltar o al arrastrar
                 val (gx, gy) = toGame(x, y)
                 LwjglBridge.sendCursorPos(gx, gy)
-                LwjglBridge.sendMouseButton(LwjglBridge.MOUSE_LEFT, LwjglBridge.PRESS, 0)
-                owners[pid] = Owner.Look(x, y, System.currentTimeMillis(), holding = true)
+                owners[pid] = Owner.Menu(x, y)
             }
             else -> { owners[pid] = Owner.Look(x, y, System.currentTimeMillis()); removeCallbacks(holdChecker); post(holdChecker) }
         }
@@ -135,6 +137,15 @@ class TouchControlsEngine(context: Context, private val layoutFile: File) : View
         when (val o = owners[pid]) {
             is Owner.Drag -> { o.c.x = (x / width).coerceIn(0f, 1f); o.c.y = (y / height).coerceIn(0f, 1f) }
             is Owner.Stick -> layout.controls.first { it.type == "JOYSTICK" }.let { updateStick(it, x, y) }
+            is Owner.Menu -> {
+                val (gx, gy) = toGame(x, y)
+                LwjglBridge.sendCursorPos(gx, gy)
+                // Arrastre (inventario, barras deslizantes): mantener el clic
+                if (!o.pressed && hypot(x - o.startX, y - o.startY) > dragThresholdPx) {
+                    o.pressed = true
+                    LwjglBridge.sendMouseButton(LwjglBridge.MOUSE_LEFT, LwjglBridge.PRESS, 0)
+                }
+            }
             is Owner.Look -> {
                 val dx = x - o.lastX; val dy = y - o.lastY
                 o.moved += hypot(dx, dy); o.lastX = x; o.lastY = y
@@ -147,6 +158,15 @@ class TouchControlsEngine(context: Context, private val layoutFile: File) : View
 
     private fun up(pid: Int, x: Float, y: Float) {
         when (val o = owners.remove(pid)) {
+            is Owner.Menu -> {
+                if (o.pressed) LwjglBridge.sendMouseButton(LwjglBridge.MOUSE_LEFT, LwjglBridge.RELEASE, 0)
+                else {
+                    // Toque: clic completo; el soltar va unos cuadros después para que el juego
+                    // procese primero la posición del cursor y luego la pulsación
+                    LwjglBridge.sendMouseButton(LwjglBridge.MOUSE_LEFT, LwjglBridge.PRESS, 0)
+                    postDelayed({ LwjglBridge.sendMouseButton(LwjglBridge.MOUSE_LEFT, LwjglBridge.RELEASE, 0) }, 40)
+                }
+            }
             is Owner.Btn -> press(o.c, false)
             is Owner.Stick -> { setStickKeys(emptySet()); stickVec = 0f to 0f }
             is Owner.Look -> {
