@@ -51,6 +51,11 @@ class MinecraftLauncher(
          */
         const val LWJGL_VERSION = "3.3.3"
         /** CDN de librerías de Mojang (tiene LWJGL 3.3.3) y Maven Central como respaldo. */
+        /**
+         * ${variable} de los argumentos del version.json. La "}" va escapada: el motor de regex
+         * de Android (ICU) la rechaza sin escapar, aunque Java de escritorio la acepta.
+         */
+        private val VAR_REGEX = Regex("""\$\{([a-zA-Z0-9_]+)\}""")
         private val LWJGL_REPOS = listOf("https://libraries.minecraft.net", "https://repo1.maven.org/maven2")
     }
 
@@ -218,7 +223,7 @@ class MinecraftLauncher(
     }
 
     private fun substitute(s: String, vars: Map<String, String>) =
-        Regex("\\$\\{([a-zA-Z_]+)}").replace(s) { m -> vars[m.groupValues[1]] ?: m.value }
+        VAR_REGEX.replace(s) { m -> vars[m.groupValues[1]] ?: m.value }
 
     /** Si hay -Xmx/-Xss duplicados (version.json + nuestros), gana el último. */
     private fun dedupeJvmArgs(args: List<String>): List<String> {
