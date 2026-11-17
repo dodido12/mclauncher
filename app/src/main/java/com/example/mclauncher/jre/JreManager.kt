@@ -37,11 +37,33 @@ class JreManager(private val context: Context, private val http: HttpClient) {
     fun effective(rt: JavaRuntime): JavaRuntime =
         if (rt == JavaRuntime.JAVA_8 && !hasAsset(rt)) JavaRuntime.JAVA_17 else rt
 
+    /**
+     * Runtime incluido en el APK: assets/runtimes/jre-<N>/{universal.tar.xz, bin-arm64.tar.xz, version}
+     * (mismo formato que los runtimes de ZalithLauncher/PojavLauncher: OpenJDK compilado para Android).
+     */
+    private fun assetDir(rt: JavaRuntime) = "runtimes/jre-${rt.major}"
+
     private fun hasAsset(rt: JavaRuntime) =
-        runCatching { context.assets.open("runtimes/jre-${rt.major}-aarch64.tar.xz").close() }.isSuccess
+        runCatching { context.assets.open("${assetDir(rt)}/universal.tar.xz").close() }.isSuccess
+
+    private fun bundledVersion(rt: JavaRuntime): String? =
+        runCatching { context.assets.open("${assetDir(rt)}/version").bufferedReader().use { it.readText().trim() } }.getOrNull()
+
+    /** De dónde salió el runtime instalado: "bundled:<versión>" o "termux". */
+    private fun sourceFile(rt: JavaRuntime) = File(homeOf(rt), ".source")
 
     fun homeOf(rt: JavaRuntime) = File(runtimesDir, "java-${effective(rt).major}")
-    fun isInstalled(rt: JavaRuntime) = libjvmOf(rt)?.exists() == true && File(homeOf(rt), ".installed").exists()
+
+    /**
+     * Instalado y al día. Si el APK trae su propio runtime, uno distinto (p. ej. el de Termux
+     * de una versión anterior del launcher, o un runtime incluido más viejo) se reemplaza.
+     */
+    fun isInstalled(rt: JavaRuntime): Boolean {
+        if (libjvmOf(rt)?.exists() != true || !File(homeOf(rt), ".installed").exists()) return false
+        if (!hasAsset(rt)) return true
+        val installedFrom = sourceFile(rt).takeIf { it.exists() }?.readText()?.trim()
+        return installedFrom == "bundled:${bundledVersion(rt)}"
+    }
 
     /** JDK 9+: lib/server/libjvm.so — JDK 8: lib/aarch64/server/libjvm.so */
     fun libjvmOf(rt: JavaRuntime): File? = listOf(
@@ -61,19 +83,24 @@ class JreManager(private val context: Context, private val http: HttpClient) {
         val rt = effective(requested)
         if (isInstalled(rt)) { ensureCacerts(homeOf(rt)); return@withContext homeOf(rt) }
         if (hasAsset(rt)) {
-            onProgress("Extrayendo Java ${rt.major} incluido…")
+            onProgress("Extrayendo Java ${rt.major} incluido en el APK…")
             val home = homeOf(rt).apply { deleteRecursively(); mkdirs() }
-            context.assets.open("runtimes/jre-${rt.major}-aarch64.tar.xz").use { raw ->
-                TarArchiveInputStream(XZCompressorInputStream(BufferedInputStream(raw, 1 shl 16))).use { tar ->
-                    while (true) {
-                        val e = tar.nextEntry ?: break
-                        val rel = e.name.substringAfter('/', e.name)
-                        if (rel.isNotEmpty()) writeEntry(tar, e, home, rel)
+            // universal = clases, módulos, conf, legal ; bin-arm64 = librerías nativas aarch64
+            for (part in listOf("universal.tar.xz", "bin-arm64.tar.xz")) {
+                context.assets.open("${assetDir(rt)}/$part").use { raw ->
+                    TarArchiveInputStream(XZCompressorInputStream(BufferedInputStream(raw, 1 shl 16))).use { tar ->
+                        while (true) {
+                            val e = tar.nextEntry ?: break
+                            val rel = e.name.removePrefix("./").trimEnd('/')
+                            if (rel.isNotEmpty()) writeEntry(tar, e, home, rel)
+                        }
                     }
                 }
             }
+            sourceFile(rt).writeText("bundled:${bundledVersion(rt)}")
         } else {
             installFromTermux(rt, onProgress)
+            sourceFile(rt).writeText("termux")
         }
         postInstall(rt)
         ensureCacerts(homeOf(rt))

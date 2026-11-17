@@ -10,6 +10,7 @@
 | OpenAL Soft | LGPL-2.1-or-later | https://github.com/kcat/openal-soft |
 | FreeType | FTL o GPLv2 | https://gitlab.freedesktop.org/freetype/freetype |
 | GLFW (solo headers) | zlib | https://github.com/glfw/glfw |
-| OpenJDK (descargado en el dispositivo desde Termux) | GPLv2 + Classpath Exception | https://github.com/termux/termux-packages |
+| OpenJDK 25.0.3 para Android (incluido en `assets/runtimes/jre-25`, tomado de ZalithLauncher; compilación de PojavLauncherTeam) | GPLv2 + Classpath Exception (textos en `legal/` dentro del runtime) | https://github.com/PojavLauncherTeam/android-openjdk-build-multiarch · https://github.com/ZalithLauncher/ZalithLauncher · código de OpenJDK: https://github.com/openjdk/jdk25u |
+| OpenJDK 17 / 21 (descargado en el dispositivo desde Termux si no va en el APK) | GPLv2 + Classpath Exception | https://github.com/termux/termux-packages |
 
 OpenAL Soft es LGPL: se distribuye como librería dinámica separada y su código fuente está en el enlace.

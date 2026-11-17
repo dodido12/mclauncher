@@ -1,6 +1,9 @@
-Coloca aquí (opcional) los runtimes OpenJDK para Android aarch64, comprimidos:
-  jre-8-aarch64.tar.xz   jre-17-aarch64.tar.xz   jre-21-aarch64.tar.xz   jre-25-aarch64.tar.xz
-Deben ser builds de OpenJDK compiladas para Android/bionic (no las de Linux glibc).
-OpenJDK es GPLv2 + Classpath Exception: puedes redistribuirlas incluyendo licencia y
-ofreciendo el código fuente. Si no las incluyes, JreManager las descarga desde la URL
-que configures en runtimes.json.
+Runtimes OpenJDK para Android (bionic) incluidos en el APK, uno por carpeta:
+
+  runtimes/jre-<N>/universal.tar.xz   clases, lib/modules, conf, legal (independiente de la CPU)
+  runtimes/jre-<N>/bin-arm64.tar.xz   librerías nativas aarch64 (lib/server/libjvm.so, lib/*.so)
+  runtimes/jre-<N>/version            identificador; si cambia, el launcher reinstala el runtime
+
+Es el mismo formato que usan ZalithLauncher / PojavLauncher. jre-25 viene de ZalithLauncher
+(OpenJDK 25.0.3, GPLv2 + Classpath Exception; licencias en legal/ dentro del runtime).
+Para las versiones de Java que no estén aquí, JreManager descarga OpenJDK del repositorio de Termux.
