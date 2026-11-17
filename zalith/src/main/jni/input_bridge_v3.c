@@ -20,6 +20,10 @@
 #include <math.h>
 
 #include "log.h"
+#include <android/log.h>
+
+// MCLauncher: diagnóstico de entrada (primeros eventos) para el botón "Registro"
+static int mcl_dbg_btn = 0, mcl_dbg_pos = 0, mcl_dbg_pump = 0;
 #include "utils.h"
 #include "environ/environ.h"
 
@@ -118,6 +122,11 @@ void pojavPumpEvents(void* window) {
                 if(pojav_environ->GLFW_invoke_Key) pojav_environ->GLFW_invoke_Key(window, event.i1, event.i2, event.i3, event.i4);
                 break;
             case EVENT_TYPE_MOUSE_BUTTON:
+                if (mcl_dbg_pump < 12) {
+                    mcl_dbg_pump++;
+                    __android_log_print(ANDROID_LOG_INFO, "MCLInput", "entregado al juego: boton %d accion %d en %.0f,%.0f ventana=%p",
+                                        event.i1, event.i2, pojav_environ->cursorX, pojav_environ->cursorY, window);
+                }
                 if(pojav_environ->GLFW_invoke_MouseButton) pojav_environ->GLFW_invoke_MouseButton(window, event.i1, event.i2, event.i3);
                 break;
             case EVENT_TYPE_SCROLL:
@@ -354,6 +363,11 @@ JNIEXPORT void JNICALL Java_org_lwjgl_glfw_CallbackBridge_nativeSendCursorEnter(
 */
 
 void critical_send_cursor_pos(jfloat x, jfloat y) {
+    if (mcl_dbg_pos < 6) {
+        mcl_dbg_pos++;
+        __android_log_print(ANDROID_LOG_INFO, "MCLInput", "cursor %.0f,%.0f: callback=%p listo=%d",
+                            x, y, pojav_environ->GLFW_invoke_CursorPos, pojav_environ->isInputReady);
+    }
 #ifdef DEBUG
     LOGD("Sending cursor position \n");
 #endif
@@ -407,6 +421,11 @@ void noncritical_send_key(__attribute__((unused)) JNIEnv* env, __attribute__((un
 }
 
 void critical_send_mouse_button(jint button, jint action, jint mods) {
+    if (mcl_dbg_btn < 12) {
+        mcl_dbg_btn++;
+        __android_log_print(ANDROID_LOG_INFO, "MCLInput", "boton %d accion %d: callback=%p listo=%d cola=%d",
+                            button, action, pojav_environ->GLFW_invoke_MouseButton, pojav_environ->isInputReady, pojav_environ->isUseStackQueueCall);
+    }
     if (pojav_environ->GLFW_invoke_MouseButton && pojav_environ->isInputReady) {
         pojav_environ->mouseDownBuffer[max(0, button)] = (jbyte) action;
         if (pojav_environ->isUseStackQueueCall) {

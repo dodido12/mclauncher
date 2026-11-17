@@ -107,8 +107,15 @@ class TouchControlsEngine(context: Context, private val layoutFile: File) : View
         return true
     }
 
+    private var debugTouches = 0
+
     private fun down(pid: Int, x: Float, y: Float) {
         val c = hit(x, y)
+        if (debugTouches < 10) {
+            debugTouches++
+            val (gx, gy) = toGame(x, y)
+            android.util.Log.i("Touch", "toque $x,$y control=${c?.id} capturado=${LwjglBridge.isCursorGrabbed()} -> juego ${gx.toInt()},${gy.toInt()} ventana=${LwjglBridge.windowSize().joinToString("x")}")
+        }
         if (editMode) { c?.let { owners[pid] = Owner.Drag(it) }; return }
         when {
             c?.type == "JOYSTICK" -> { owners[pid] = Owner.Stick; updateStick(c, x, y) }

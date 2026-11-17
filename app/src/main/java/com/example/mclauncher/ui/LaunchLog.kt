@@ -96,13 +96,16 @@ object LaunchLog {
     }
 
     private val TAGS = listOf(
-        "MCLauncher", "Input", "mcl_", "Zalith", "pojavexec", "GLBridge", "OSMDroid", "exit_hook", "jrelog", "Native", "HotSpot", "Minecraft", "GameActivity", "JreManager", "FramePacer", "HdrDisplayManager",
+        "MCLauncher", "Input", "MCLInput", "Touch", "mcl_", "Zalith", "pojavexec", "GLBridge", "OSMDroid", "exit_hook", "jrelog", "Native", "HotSpot", "Minecraft", "GameActivity", "JreManager", "FramePacer", "HdrDisplayManager",
         "AndroidRuntime", "libc", "DEBUG", "linker", "zink", "MESA", "Mesa", "gl4es", "LIBGL", "vulkan", "System.err"
     )
 
+    /** Líneas que llenan el registro sin aportar (trazas de buffers gráficos, auditoría SELinux). */
+    private val NOISE = listOf("GraphicBufferAllocator", "avc:  granted", "dlopen /data/", "vulkan_enhance_pipeline_cache")
+
     private fun filterRelevant(log: String): String {
         val lines = log.lines()
-        val relevant = lines.filter { l -> TAGS.any { l.contains(it) } }
+        val relevant = lines.filter { l -> TAGS.any { l.contains(it) } && NOISE.none { l.contains(it) } }
         return (relevant.ifEmpty { lines }).takeLast(400).joinToString("\n")
     }
 }
