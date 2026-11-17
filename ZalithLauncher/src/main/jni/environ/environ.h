@@ -30,11 +30,15 @@ typedef void GLFW_invoke_MouseButton_func(void* window, int button, int action, 
 typedef void GLFW_invoke_Scroll_func(void* window, double xoffset, double yoffset);
 typedef void GLFW_invoke_WindowSize_func(void* window, int width, int height);
 
+typedef struct {
+    unsigned char buttons[15];
+    float axes[6];
+} GLFWgamepadstate;
+
 struct pojav_environ_s {
     struct ANativeWindow* pojavWindow;
     basic_render_window_t* mainWindowBundle;
     int config_renderer;
-    bool force_vsync;
     atomic_size_t eventCounter; // Count the number of events to be pumped out
     GLFWInputEvent events[EVENT_WINDOW_SIZE];
     size_t outEventIndex; // Point to the current event that has yet to be pumped out to MC
@@ -44,19 +48,28 @@ struct pojav_environ_s {
     double cursorX, cursorY, cLastX, cLastY;
     jmethodID method_accessAndroidClipboard;
     jmethodID method_onGrabStateChanged;
+    jmethodID method_onCursorShapeChanged;
+    jmethodID method_onGraphicOutput;
+    jmethodID method_onDirectInputEnable;
     jmethodID method_glftSetWindowAttrib;
     jmethodID method_internalWindowSizeChanged;
+    jmethodID method_internalChangeMonitorSize;
+    jmethodID method_notifyLauncher;
     jclass bridgeClazz;
     jclass vmGlfwClass;
     jboolean isGrabbing;
+    GLFWgamepadstate gamepadState;
     jbyte* keyDownBuffer;
     jbyte* mouseDownBuffer;
     JavaVM* runtimeJavaVMPtr;
     JNIEnv* runtimeJNIEnvPtr_JRE;
     JavaVM* dalvikJavaVMPtr;
     JNIEnv* dalvikJNIEnvPtr_ANDROID;
+    JNIEnv* glfwThreadVmEnv;
     long showingWindow;
-    bool isInputReady, isCursorEntered, isUseStackQueueCall, shouldUpdateMouse;
+    bool isInputReady, isCursorEntered, isUseStackQueueCall, shouldUpdateMouse, hasGraphicOutput;
+    bool shouldUpdateMonitorSize;
+    bool monitorSizeConsumed;
     int savedWidth, savedHeight;
 #define ADD_CALLBACK_WWIN(NAME) \
     GLFW_invoke_##NAME##_func* GLFW_invoke_##NAME;

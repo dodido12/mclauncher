@@ -1,159 +1,175 @@
 import com.android.build.api.variant.FilterConfiguration.FilterType.ABI
+import com.android.build.api.variant.impl.VariantOutputImpl
 import com.android.build.gradle.tasks.MergeSourceSetFolders
-import com.github.megatronking.stringfog.plugin.StringFogExtension
+import groovy.json.JsonOutput
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.security.MessageDigest
 
 plugins {
-    id("com.android.application")
-    id("org.jetbrains.kotlin.android") version "2.0.21"
-    id("stringfog")
-}
-apply(plugin = "stringfog")
-
-val getCFApiKey = {
-    System.getenv("CURSEFORGE_API_KEY") ?: run {
-        val curseforgeKeyFile = File(rootDir, "curseforge_key.txt")
-        if (curseforgeKeyFile.canRead() && curseforgeKeyFile.isFile) {
-            curseforgeKeyFile.readText()
-        } else {
-            logger.warn("BUILD: You have no CurseForge key, the curseforge api will get disabled !")
-            "DUMMY"
-        }
-    }
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.hilt)
+    id("com.google.devtools.ksp")
+    id("kotlinx-serialization")
+    id("kotlin-parcelize")
+    id("com.movtery.buildkeys")
 }
 
-val getBuildType = {
-    val buildType = System.getenv("ZL_BUILD_TYPE") ?: "DEBUG"
-    logger.warn("BUILD: Build Type --> $buildType")
-    buildType
-}
-
-val nameId = "com.movtery.zalithlauncher"
-val generatedZalithDir = file("$buildDir/generated/source/zalith/java")
+val zalithPackageName = "com.movtery.zalithlauncher"
 val launcherAPPName = project.findProperty("launcher_app_name") as? String ?: error("The \"launcher_app_name\" property is not set in gradle.properties.")
 val launcherName = project.findProperty("launcher_name") as? String ?: error("The \"launcher_name\" property is not set in gradle.properties.")
+val launcherShortName = project.findProperty("launcher_short_name") as? String ?: error("The \"launcher_short_name\" property is not set in gradle.properties.")
+val launcherUrl = project.findProperty("url_home") as? String ?: error("The \"url_home\" property is not set in gradle.properties.")
+
 val launcherVersionCode = (project.findProperty("launcher_version_code") as? String)?.toIntOrNull() ?: error("The \"launcher_version_code\" property is not set as an integer in gradle.properties.")
 val launcherVersionName = project.findProperty("launcher_version_name") as? String ?: error("The \"launcher_version_name\" property is not set in gradle.properties.")
 
-configurations {
-    create("instrumentedClasspath") {
-        isCanBeConsumed = false
-        isCanBeResolved = true
+val defaultOAuthClientID = project.findProperty("oauth_client_id") as? String
+val defaultStorePassword = project.findProperty("default_store_password") as? String ?: error("The \"default_store_password\" property is not set in gradle.properties.")
+val defaultKeyPassword = project.findProperty("default_key_password") as? String ?: error("The \"default_key_password\" property is not set in gradle.properties.")
+val defaultCurseForgeApiKey = project.findProperty("curseforge_api_key") as? String
+
+val projectArch: String = System.getProperty("arch", "all")
+
+fun getKeyFromLocal(envKey: String, fileName: String? = null, default: String? = null): String {
+    val key = System.getenv(envKey)
+    return key ?: fileName?.let {
+        val file = File(rootDir, fileName)
+        if (file.canRead() && file.isFile) file.readText() else null
+    } ?: default ?: run {
+        logger.warn("BUILD: $envKey not set; related features may throw exceptions.")
+        ""
     }
 }
 
-configure<StringFogExtension> {
-    implementation = "com.github.megatronking.stringfog.xor.StringFogImpl"
-    fogPackages = arrayOf(nameId)
-    kg = com.github.megatronking.stringfog.plugin.kg.RandomKeyGenerator()
-    mode = com.github.megatronking.stringfog.plugin.StringFogMode.bytes
+fun File.sha1Hex(): String {
+    val digest = MessageDigest.getInstance("SHA-1")
+    inputStream().use { stream ->
+        val buffer = ByteArray(8192)
+        while (true) {
+            val count = stream.read(buffer)
+            if (count < 0) break
+            digest.update(buffer, 0, count)
+        }
+    }
+    return digest.digest().joinToString("") { "%02x".format(it) }
+}
+
+fun writeAssetManifest(assetsDir: File, componentPath: String) {
+    val componentDir = File(assetsDir, componentPath)
+    require(componentDir.isDirectory) { "Missing component assets: $componentDir" }
+    val files = componentDir.walkTopDown()
+        .filter { it.isFile }
+        .map { it.relativeTo(componentDir) }
+        .filter { it.invariantSeparatorsPath != "version" && it.invariantSeparatorsPath != "manifest.json" }
+        .sortedBy { it.invariantSeparatorsPath }
+        .map { relativePath ->
+            val path = relativePath.invariantSeparatorsPath
+            val file = File(componentDir, path)
+            linkedMapOf(
+                "path" to path,
+                "size" to file.length(),
+                "sha1" to file.sha1Hex()
+            )
+        }
+        .toList()
+    require(files.isNotEmpty()) { "Component assets are empty: $componentDir" }
+
+    val manifest = linkedMapOf(
+        "formatVersion" to 1,
+        "component" to componentPath,
+        "algorithm" to "SHA-1",
+        "files" to files
+    )
+    File(componentDir, "manifest.json").writeText(
+        JsonOutput.prettyPrint(JsonOutput.toJson(manifest)) + "\n"
+    )
+}
+
+fun writeComponentAssetManifests(assetsDir: File) {
+    val componentPaths = mutableListOf(
+        "components/auth_libs",
+        "components/caciocavallo",
+        "components/caciocavallo17",
+        "components/launcher",
+        "runtimes/jna"
+    )
+    val lwjglRoot = File(assetsDir, "app_runtime/lwjgl")
+    require(lwjglRoot.isDirectory) { "Missing LWJGL assets: $lwjglRoot" }
+    lwjglRoot.listFiles()
+        ?.filter { it.isDirectory }
+        ?.sortedBy { it.name }
+        ?.forEach { componentPaths += "app_runtime/lwjgl/${it.name}" }
+    componentPaths.forEach {
+        writeAssetManifest(assetsDir, it)
+    }
 }
 
 android {
-    namespace = nameId
-    compileSdk = 34
+    namespace = zalithPackageName
+    compileSdk {
+        version = release(37) {
+            minorApiLevel = 2
+        }
+    }
 
     signingConfigs {
         create("releaseBuild") {
-            val pwd = System.getenv("MOVTERY_KEYSTORE_PASSWORD")
-            storeFile = file("movtery-key.jks")
-            storePassword = pwd
-            keyAlias = "mtp"
-            keyPassword = pwd
+            storeFile = file("zalith_launcher.jks")
+            storePassword = getKeyFromLocal("STORE_PASSWORD", ".store_password.txt")
+            keyAlias = "movtery_zalith"
+            keyPassword = getKeyFromLocal("KEY_PASSWORD", ".key_password.txt")
         }
-        create("customDebug") {
-            storeFile = file("debug.keystore")
-            storePassword = "android"
-            keyAlias = "androiddebugkey"
-            keyPassword = "android"
+        create("debugBuild") {
+            storeFile = file("zalith_launcher_debug.jks")
+            storePassword = defaultStorePassword
+            keyAlias = "movtery_zalith_debug"
+            keyPassword = defaultKeyPassword
         }
     }
 
     defaultConfig {
-        applicationId = nameId
+        applicationId = zalithPackageName
+        applicationIdSuffix = ".v2"
         minSdk = 26
         targetSdk = 34
         versionCode = launcherVersionCode
         versionName = launcherVersionName
-        multiDexEnabled = true //important
         manifestPlaceholders["launcher_name"] = launcherAPPName
     }
 
     buildTypes {
-        val storageProviderId = "$nameId.storage_provider"
-
-        getByName("debug") {
-            applicationIdSuffix = ".debug"
-            isMinifyEnabled = false
-            isShrinkResources = false
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            signingConfig = signingConfigs.getByName("customDebug")
-            resValue("string", "storageProviderAuthorities", "$storageProviderId.debug")
-        }
-        create("proguard") {
-            initWith(getByName("debug"))
+        release {
             isMinifyEnabled = true
             isShrinkResources = true
-        }
-        create("proguardNoDebug") {
-            initWith(getByName("proguard"))
-            isDebuggable = false
-        }
-        getByName("release") {
-            // Don't set to true or java.awt will be a.a or something similar.
-            isMinifyEnabled = false
-            proguardFiles(getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro")
-            resValue("string", "storageProviderAuthorities", storageProviderId)
             signingConfig = signingConfigs.getByName("releaseBuild")
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+        }
+        debug {
+            isMinifyEnabled = false
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+            signingConfig = signingConfigs.getByName("debugBuild")
         }
     }
 
-    sourceSets["main"].java.srcDirs(generatedZalithDir)
-
-    androidComponents {
-        onVariants { variant ->
-            variant.outputs.forEach { output ->
-                if (output is com.android.build.api.variant.impl.VariantOutputImpl) {
-                    val variantName = variant.name.replaceFirstChar { it.uppercaseChar() }
-                    afterEvaluate {
-                        val task = tasks.named("merge${variantName}Assets").get() as MergeSourceSetFolders
-                        task.doLast {
-                            val arch = System.getProperty("arch", "all")
-                            val assetsDir = task.outputDir.get().asFile
-                            val jreList = listOf("jre-8", "jre-17", "jre-21")
-                            println("arch:$arch")
-                            jreList.forEach { jreVersion ->
-                                val runtimeDir = File("$assetsDir/components/$jreVersion")
-                                println("runtimeDir:${runtimeDir.absolutePath}")
-                                runtimeDir.listFiles()?.forEach {
-                                    if (arch != "all" && it.name != "version" && !it.name.contains("universal") && it.name != "bin-${arch}.tar.xz") {
-                                        println("delete:${it} : ${it.delete()}")
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    (output.getFilter(ABI)?.identifier ?: "all").let { abi ->
-                        val baseName = "$launcherName-${if (variant.buildType == "release") defaultConfig.versionName else "Debug-${defaultConfig.versionName}"}"
-                        output.outputFileName = if (abi == "all") "$baseName.apk" else "$baseName-$abi.apk"
-                    }
-                }
-            }
-        }
+    lint {
+        checkReleaseBuilds = false
     }
 
     splits {
-        val arch = System.getProperty("arch", "all")
-        if (arch != "all") {
-            abi {
-                isEnable = true
-                reset()
-                when (arch) {
-                    "arm" -> include("armeabi-v7a")
-                    "arm64" -> include("arm64-v8a")
-                    "x86" -> include("x86")
-                    "x86_64" -> include("x86_64")
-                }
+        val arch = projectArch.takeIf { it != "all" } ?: return@splits
+        abi {
+            isEnable = true
+            reset()
+            when (arch) {
+                "arm" -> include("armeabi-v7a")
+                "arm64" -> include("arm64-v8a")
+                "x86" -> include("x86")
+                "x86_64" -> include("x86_64")
             }
         }
     }
@@ -166,11 +182,6 @@ android {
         }
     }
 
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
-    }
-
     packaging {
         jniLibs {
             useLegacyPackaging = true
@@ -178,103 +189,210 @@ android {
         }
     }
 
+    compileOptions {
+        // sora-editor language-textmate
+        isCoreLibraryDesugaringEnabled = true
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
     buildFeatures {
-        prefab = true
+        compose = true
         buildConfig = true
-        viewBinding = true
+        prefab = true
     }
-
-    buildToolsVersion = "34.0.0"
-    kotlinOptions {
-        jvmTarget = "1.8"
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+            //让 android.util.Log 等框架方法在本地单测中返回默认值而非抛出异常
+            isReturnDefaultValues = true
+        }
     }
 }
 
-fun generateJavaClass(sourceOutputDir: File, packageName: String, className: String, constantMap: Map<String, String>) {
-    val outputDir = File(sourceOutputDir, packageName.replace(".", "/"))
-    outputDir.mkdirs()
-    val javaFile = File(outputDir, "$className.java")
-    val constants = constantMap.entries.joinToString("\n") { (key, value) ->
-        "\tpublic static final String $key = \"$value\";"
+androidComponents {
+    onVariants { variant ->
+        variant.outputs.forEach { output ->
+            if (output is VariantOutputImpl) {
+                val variantName = variant.name.replaceFirstChar { it.uppercaseChar() }
+                afterEvaluate {
+                    val task = tasks.named("merge${variantName}Assets").get() as MergeSourceSetFolders
+                    task.inputs.property("lwjglArch", projectArch)
+                    task.doLast {
+                        val assetsDir = task.outputDir.get().asFile
+                        val tag = "JREAssetsCleanup"
+                        logger.lifecycle("[$tag] arch: $projectArch")
+                        val jreList = listOf("jre-8", "jre-17", "jre-21", "jre-25")
+                        jreList.forEach { jreVersion ->
+                            val runtimeDir = File("$assetsDir/runtimes/$jreVersion")
+                            logger.lifecycle("[$tag] runtimeDir: ${runtimeDir.absolutePath}")
+                            runtimeDir.listFiles()?.forEach {
+                                if (projectArch != "all" && it.name != "version" && !it.name.contains("universal") && it.name != "bin-$projectArch.tar.xz") {
+                                    logger.lifecycle("[$tag] delete: $it : ${it.delete()}")
+                                }
+                            }
+                        }
+
+                        if (projectArch != "all") {
+                            val abi = when (projectArch) {
+                                "arm" -> "armeabi-v7a"
+                                "arm64" -> "arm64-v8a"
+                                "x86" -> "x86"
+                                "x86_64" -> "x86_64"
+                                else -> error("Unknown project architecture: $projectArch")
+                            }
+                            val lwjglVersions = file("libs").listFiles { f ->
+                                f.name.matches(Regex("lwjgl-\\d+\\.\\d+\\.\\d+-natives-release\\.aar"))
+                            }?.map {
+                                Regex("lwjgl-(\\d+\\.\\d+\\.\\d+)-natives-release\\.aar").find(it.name)!!.groupValues[1]
+                            } ?: emptyList()
+
+                            lwjglVersions.forEach { version ->
+                                val nativesDir =
+                                    File(assetsDir, "app_runtime/lwjgl/$version/natives")
+                                if (nativesDir.isDirectory) {
+                                    nativesDir.listFiles()?.forEach { dir ->
+                                        if (dir.isDirectory && dir.name != abi) {
+                                            logger.lifecycle("Removing non-target-arch natives: $dir")
+                                            dir.deleteRecursively()
+                                        }
+                                    }
+                                }
+                            }
+
+                            File(assetsDir, "runtimes/jna").listFiles()?.forEach { versionDir ->
+                                val nativesDir = File(versionDir, "natives")
+                                if (nativesDir.isDirectory) {
+                                    nativesDir.listFiles()?.forEach { dir ->
+                                        if (dir.isDirectory && dir.name != abi) {
+                                            logger.lifecycle("Removing non-target-arch JNA natives: $dir")
+                                            dir.deleteRecursively()
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        writeComponentAssetManifests(assetsDir)
+                    }
+                }
+
+                (output.getFilter(ABI)?.identifier ?: "all").let { abi ->
+                    val baseName = "$launcherName-${if (variant.buildType == "release") launcherVersionName else "Debug-$launcherVersionName"}"
+                    output.outputFileName = if (abi == "all") "$baseName.apk" else "$baseName-$abi.apk"
+                }
+            }
+        }
     }
-    javaFile.writeText(
-        """
-        |/**
-        | * Automatically generated file. DO NOT MODIFY
-        | */
-        |package $packageName;
-        |
-        |public class $className {
-        |$constants
-        |}
-        """.trimMargin()
-    )
-    println("Generated Java file: ${javaFile.absolutePath}")
 }
 
-tasks.register("generateInfoDistributor") {
-    doLast {
-        val constantMap = mapOf(
-            "CURSEFORGE_API_KEY" to getCFApiKey(),
-            "LAUNCHER_NAME" to project.property("launcher_name").toString(),
-            "APP_NAME" to project.property("launcher_app_name").toString(),
-            "BUILD_TYPE" to getBuildType()
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_17)
+        optIn.addAll(
+            "androidx.compose.material3.ExperimentalMaterial3Api",
         )
-        generateJavaClass(generatedZalithDir, "com.movtery.zalithlauncher", "InfoDistributor", constantMap)
     }
 }
 
-tasks.named("preBuild") {
-    dependsOn("generateInfoDistributor")
+buildKeys {
+    string("OAUTH_CLIENT_ID", getKeyFromLocal("OAUTH_CLIENT_ID", ".oauth_client_id.txt", defaultOAuthClientID), true)
+    string("LAUNCHER_NAME", launcherAPPName, true)
+    string("LAUNCHER_IDENTIFIER", launcherName, true)
+    string("LAUNCHER_SHORT_NAME", launcherShortName, true)
+    string("URL_HOME", launcherUrl, true)
+    string("CURSEFORGE_API", getKeyFromLocal("CURSEFORGE_API_KEY", ".curseforge_api.txt", defaultCurseForgeApiKey), true)
+    string("BUILD_ARCH", projectArch)
 }
 
 dependencies {
-    implementation("javax.annotation:javax.annotation-api:1.3.2")
-    implementation("commons-codec:commons-codec:1.17.1")
-    // implementation("com.wu-man:android-bsf-api:3.1.3")
-    implementation("androidx.drawerlayout:drawerlayout:1.2.0")
-    implementation("androidx.viewpager2:viewpager2:1.1.0-beta01")
-    implementation("androidx.annotation:annotation:1.7.0")
-    implementation("androidx.constraintlayout:constraintlayout:2.1.4")
-    implementation("androidx.core:core-ktx:1.13.0")
-    implementation("androidx.palette:palette-ktx:1.0.0")
-
-    implementation("com.github.duanhong169:checkerboarddrawable:1.0.2")
-    implementation("com.github.PojavLauncherTeam:portrait-sdp:ed33e89cbc")
-    implementation("com.github.PojavLauncherTeam:portrait-ssp:6c02fd739b")
-    implementation("com.github.Mathias-Boulay:ExtendedView:1.0.0")
-    implementation("com.github.Mathias-Boulay:android_gamepad_remapper:2.0.3")
-    implementation("com.github.Mathias-Boulay:virtual-joystick-android:1.14")
-    implementation("com.github.skydoves:powerspinner:1.2.7")
-    implementation("com.github.bumptech.glide:glide:4.16.0")
-    implementation("com.github.angcyo.DslTablayout:TabLayout:3.6.5")
-
-    implementation("com.github.megatronking.stringfog:xor:5.0.0")
-
-    implementation("top.fifthlight.touchcontroller:proxy-client-android:0.0.2")
-
-    // implementation("com.intuit.sdp:sdp-android:1.0.5")
-    // implementation("com.intuit.ssp:ssp-android:1.0.5")
-
-    implementation("org.tukaani:xz:1.9")
-    // Our version of exp4j can be built from source at
-    // https://github.com/PojavLauncherTeam/exp4j
-    implementation("net.sourceforge.htmlcleaner:htmlcleaner:2.6.1")
-    implementation("com.bytedance:bytehook:1.0.10")
-
-    // implementation("net.sourceforge.streamsupport:streamsupport-cfuture:1.7.0")
-
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.core.splashscreen)
+    implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.lifecycle.runtime.compose)
+    implementation(libs.androidx.lifecycle.viewmodel.ktx)
+    implementation(libs.androidx.lifecycle.viewmodel.nav3)
+    implementation(libs.androidx.activity.compose)
+    implementation(platform(libs.androidx.compose.bom))
+    implementation(libs.androidx.ui)
+    implementation(libs.androidx.ui.graphics)
+    implementation(libs.androidx.ui.tooling.preview)
+    debugImplementation(libs.androidx.ui.tooling)
+    implementation(libs.androidx.material3)
+    implementation(libs.androidx.constraintlayout.compose)
+    implementation(libs.androidx.navigation3.runtime)
+    implementation(libs.androidx.navigation3.ui)
+    implementation(libs.androidx.media3.exoplayer)
+    implementation(libs.androidx.media3.ui)
+    implementation(libs.androidx.appcompat)
+    implementation(libs.androidx.webkit)
+    implementation(libs.documentfile)
+    implementation(libs.coil.compose)
+    implementation(libs.coil.gif)
+    implementation(libs.coil.svg)
+    implementation(libs.coil.network.ktor3)
+    implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.material)
+    implementation(libs.material.color.utilities)
+    implementation(libs.materialKolor)
+    implementation(libs.reorderable)
+    implementation(libs.richtext.commonmark)
+    implementation(libs.richtext.ui)
+    implementation(libs.richtext.ui.material3)
+    implementation(platform(libs.editor.bom))
+    implementation(libs.editor)
+    implementation(libs.editor.language.textmate)
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
+    //Project
+    implementation(project(":LayerController"))
+    implementation(project(":ColorPicker"))
+    implementation(project(":CardGrid"))
+    implementation(project(":Terracotta"))
+    implementation(project(":InputMap"))
+    implementation(project(":Guide"))
+    implementation(project(":PetLib"))
+    //Utils
+    implementation(libs.bytehook)
+    implementation(libs.gson)
+    implementation(libs.jetbrains.annotations)
+    implementation(libs.commons.io)
+    implementation(libs.commons.codec)
+    implementation(libs.commons.compress)
+    implementation(libs.xz)
+    implementation(libs.zip4j)
+    implementation(libs.okio)
+    implementation(libs.okhttp)
+    implementation(libs.ktor.http)
+    implementation(libs.ktor.client.core)
+    implementation(libs.ktor.client.okhttp)
+    implementation(libs.ktor.client.content.negotiation)
+    implementation(libs.ktor.server.core)
+    implementation(libs.ktor.server.cio)
+    implementation(libs.ktor.server.content.negotiation)
+    implementation(libs.ktor.serialization.kotlinx.json)
+    implementation(libs.minidns.hla)
+    implementation(libs.toml4j)
+    implementation(libs.maven.artifact)
+    implementation(libs.mmkv)
+    implementation(libs.fishnet)
+    implementation(libs.process.phoenix)
+    implementation(libs.lunarcalendar)
     implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.jar", "*.aar"))))
-
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation("org.commonmark:commonmark:0.19.0")
-    implementation("com.google.android.material:material:1.12.0")
-    implementation("com.google.android.flexbox:flexbox:3.0.0")
-
-    implementation("com.getkeepsafe.taptargetview:taptargetview:1.14.0")
-    implementation("io.github.petterpx:floatingx:2.3.3")
-    implementation("org.greenrobot:eventbus:3.3.1")
-    implementation("com.moandjiezana.toml:toml4j:0.7.2") {
-        exclude(group = "com.google.code.gson", module = "gson")
-    }
+    //Safe
+    implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.room.ktx)
+    implementation(libs.sqlcipher.android)
+    ksp(libs.androidx.room.compiler)
+    //Support
+    implementation(libs.proxy.client.android)
+    //Hilt
+    implementation(libs.dagger.hilt.android)
+    ksp(libs.dagger.hilt.android.compiler)
+    implementation(libs.androidx.hilt.navigation.compose)
+    //Test
+    testImplementation(libs.junit)
+    testImplementation(libs.mockwebserver3)
+    androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation(libs.androidx.espresso.core)
+    androidTestImplementation(platform(libs.androidx.compose.bom))
+    androidTestImplementation(libs.androidx.ui.test.junit4)
 }

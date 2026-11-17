@@ -18,7 +18,7 @@
 
 static volatile jobject exitTrap_ctx;
 static volatile jclass exitTrap_exitClass;
-static volatile jmethodID exitTrap_staticMethod;
+static volatile jmethodID exitTrap_exitMethod;
 static JavaVM *exitTrap_jvm;
 
 static int pfd[2];
@@ -67,7 +67,7 @@ static void *logger_thread() {
 }
 
 JNIEXPORT void JNICALL
-Java_net_kdt_pojavlaunch_Logger_begin(JNIEnv *env, __attribute((unused)) jclass clazz, jstring logPath) {
+Java_com_movtery_zalithlauncher_bridge_LoggerBridge_start(JNIEnv *env, __attribute((unused)) jclass clazz, jstring logPath) {
     if (latestlog_fd != -1)
     {
         int localfd = latestlog_fd;
@@ -77,7 +77,7 @@ Java_net_kdt_pojavlaunch_Logger_begin(JNIEnv *env, __attribute((unused)) jclass 
 
     if (logger_onEventLogged == NULL)
     {
-        jclass eventLogListener = (*env)->FindClass(env, "net/kdt/pojavlaunch/Logger$eventLogListener");
+        jclass eventLogListener = (*env)->FindClass(env, "com/movtery/zalithlauncher/bridge/LoggerBridge$EventLogListener");
         logger_onEventLogged = (*env)->GetMethodID(env, eventLogListener, "onEventLogged", "(Ljava/lang/String;)V");
     }
 
@@ -125,8 +125,7 @@ _Noreturn void nominal_exit(int code, bool is_signal) {
     if (errorCode != JNI_OK)
         killpg(getpgrp(), SIGTERM);
 
-    if (code != 0)
-        (*env)->CallStaticVoidMethod(env, exitTrap_exitClass, exitTrap_staticMethod, exitTrap_ctx, code, is_signal);
+    (*env)->CallStaticVoidMethod(env, exitTrap_exitClass, exitTrap_exitMethod, code, is_signal);
 
     // Delete the reference, not gonna need 'em later anyway
     (*env)->DeleteGlobalRef(env, exitTrap_ctx);
@@ -148,7 +147,7 @@ _Noreturn void nominal_exit(int code, bool is_signal) {
     while(1) {}
 }
 
-JNIEXPORT void JNICALL Java_net_kdt_pojavlaunch_Logger_appendToLog(JNIEnv *env, __attribute((unused)) jclass clazz, jstring text) {
+JNIEXPORT void JNICALL Java_com_movtery_zalithlauncher_bridge_LoggerBridge_append(JNIEnv *env, __attribute((unused)) jclass clazz, jstring text) {
     jsize appendStringLength = (*env)->GetStringUTFLength(env, text);
     char newChars[appendStringLength+2];
     (*env)->GetStringUTFRegion(env, text, 0, (*env)->GetStringLength(env, text), newChars);
@@ -159,7 +158,7 @@ JNIEXPORT void JNICALL Java_net_kdt_pojavlaunch_Logger_appendToLog(JNIEnv *env, 
 }
 
 JNIEXPORT void JNICALL
-Java_net_kdt_pojavlaunch_Logger_setLogListener(JNIEnv *env, __attribute((unused)) jclass clazz, jobject log_listener) {
+Java_com_movtery_zalithlauncher_bridge_LoggerBridge_setListener(JNIEnv *env, __attribute((unused)) jclass clazz, jobject log_listener) {
     jobject logListenerLocal = logListener;
 
     if (log_listener == NULL) logListener = NULL;
@@ -170,10 +169,10 @@ Java_net_kdt_pojavlaunch_Logger_setLogListener(JNIEnv *env, __attribute((unused)
 }
 
 JNIEXPORT void JNICALL
-Java_net_kdt_pojavlaunch_utils_JREUtils_setupExitMethod(JNIEnv *env, jclass clazz,
+Java_com_movtery_zalithlauncher_bridge_ZLBridge_setupExitMethod(JNIEnv *env, jclass clazz,
                                                         jobject context) {
     exitTrap_ctx = (*env)->NewGlobalRef(env,context);
     (*env)->GetJavaVM(env,&exitTrap_jvm);
-    exitTrap_exitClass = (*env)->NewGlobalRef(env,(*env)->FindClass(env,"com/movtery/zalithlauncher/ui/activity/ErrorActivity"));
-    exitTrap_staticMethod = (*env)->GetStaticMethodID(env,exitTrap_exitClass,"showExitMessage","(Landroid/content/Context;IZ)V");
+    exitTrap_exitClass = (*env)->NewGlobalRef(env,(*env)->FindClass(env,"com/movtery/zalithlauncher/bridge/ZLNativeInvoker"));
+    exitTrap_exitMethod = (*env)->GetStaticMethodID(env, exitTrap_exitClass, "jvmExit", "(IZ)V");
 }

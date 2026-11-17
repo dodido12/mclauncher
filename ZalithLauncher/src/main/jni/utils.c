@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-#include "log.h"
+#include "logger/logger.h"
 
 #include "utils.h"
 
@@ -59,10 +59,6 @@ jstring convertStringJVM(JNIEnv* srcEnv, JNIEnv* dstEnv, jstring srcStr) {
     return dstStr;
 }
 
-JNIEXPORT void JNICALL Java_net_kdt_pojavlaunch_utils_JREUtils_setupBridgeSurfaceAWT(JNIEnv *env, jclass clazz, jlong surface) {
-	shared_awt_surface = surface;
-}
-
 JNIEXPORT jlong JNICALL Java_android_view_Surface_nativeGetBridgeSurfaceAWT(JNIEnv *env, jclass clazz) {
 	return (jlong) shared_awt_surface;
 }
@@ -82,7 +78,7 @@ JNIEXPORT jint JNICALL Java_android_os_OpenJDKNativeRegister_nativeRegisterNativ
 	return (jint) result;
 }
 
-JNIEXPORT void JNICALL Java_net_kdt_pojavlaunch_utils_JREUtils_setLdLibraryPath(JNIEnv *env, jclass clazz, jstring ldLibraryPath) {
+JNIEXPORT void JNICALL Java_com_movtery_zalithlauncher_bridge_ZLBridge_setLdLibraryPath(JNIEnv *env, jclass clazz, jstring ldLibraryPath) {
 	// jclass exception_cls = (*env)->FindClass(env, "java/lang/UnsatisfiedLinkError");
 	
 	android_update_LD_LIBRARY_PATH_t android_update_LD_LIBRARY_PATH;
@@ -93,7 +89,7 @@ JNIEXPORT void JNICALL Java_net_kdt_pojavlaunch_utils_JREUtils_setLdLibraryPath(
 		updateLdLibPath = dlsym(libdl_handle, "__loader_android_update_LD_LIBRARY_PATH");
 		if (updateLdLibPath == NULL) {
 			char *dl_error_c = dlerror();
-			LOGE("Error getting symbol android_update_LD_LIBRARY_PATH: %s", dl_error_c);
+			LOG_TO_E("Error getting symbol android_update_LD_LIBRARY_PATH: %s", dl_error_c);
 			// (*env)->ThrowNew(env, exception_cls, dl_error_c);
 		}
 	}
@@ -104,70 +100,74 @@ JNIEXPORT void JNICALL Java_net_kdt_pojavlaunch_utils_JREUtils_setLdLibraryPath(
 	(*env)->ReleaseStringUTFChars(env, ldLibraryPath, ldLibPathUtf);
 }
 
-JNIEXPORT jboolean JNICALL Java_net_kdt_pojavlaunch_utils_JREUtils_dlopen(JNIEnv *env, jclass clazz, jstring name) {
+JNIEXPORT jboolean JNICALL Java_com_movtery_zalithlauncher_bridge_ZLBridge_dlopen(JNIEnv *env, jclass clazz, jstring name) {
 	const char *nameUtf = (*env)->GetStringUTFChars(env, name, 0);
 	void* handle = dlopen(nameUtf, RTLD_GLOBAL | RTLD_LAZY);
 	if (!handle) {
-		LOGE("dlopen %s failed: %s", nameUtf, dlerror());
+		LOG_TO_E("DLOPEN: %s , failed ( %s )", nameUtf, dlerror());
 	} else {
-		LOGD("dlopen %s success", nameUtf);
+		LOG_TO_D("DLOPEN: %s , success", nameUtf);
 	}
 	(*env)->ReleaseStringUTFChars(env, name, nameUtf);
 	return handle != NULL;
 }
 
-JNIEXPORT jint JNICALL Java_net_kdt_pojavlaunch_utils_JREUtils_chdir(JNIEnv *env, jclass clazz, jstring nameStr) {
+JNIEXPORT jlong JNICALL Java_com_movtery_zalithlauncher_bridge_ZLBridge_getJavaVMPointer(JNIEnv *env, jclass clazz) {
+	if (pojav_environ->dalvikJavaVMPtr == NULL) return 0;
+	return (jlong) (intptr_t) pojav_environ->dalvikJavaVMPtr;
+}
+
+JNIEXPORT jstring JNICALL Java_com_movtery_zalithlauncher_bridge_ZLBridge_jObjectToString(JNIEnv *env, jclass clazz, jobject object) {
+	if (object == NULL) return NULL;
+	jobject global_ref = (*env)->NewGlobalRef(env, object);
+	if (global_ref == NULL) return NULL;
+
+	char buf[32];
+	snprintf(buf, sizeof(buf), "%llx", (unsigned long long) (uintptr_t) global_ref);
+	return (*env)->NewStringUTF(env, buf);
+}
+
+JNIEXPORT jint JNICALL Java_com_movtery_zalithlauncher_bridge_ZLBridge_chdir(JNIEnv *env, jclass clazz, jstring nameStr) {
 	const char *name = (*env)->GetStringUTFChars(env, nameStr, NULL);
 	int retval = chdir(name);
 	(*env)->ReleaseStringUTFChars(env, nameStr, name);
 	return retval;
 }
 
-JNIEXPORT jint JNICALL Java_net_kdt_pojavlaunch_utils_JREUtils_executeBinary(JNIEnv *env, jclass clazz, jobjectArray cmdArgs) {
-	jclass exception_cls = (*env)->FindClass(env, "java/lang/UnsatisfiedLinkError");
-	jstring execFile = (*env)->GetObjectArrayElement(env, cmdArgs, 0);
-	
-	char *exec_file_c = (char*) (*env)->GetStringUTFChars(env, execFile, 0);
-	void *exec_binary_handle = dlopen(exec_file_c, RTLD_LAZY);
-	
-	// (*env)->ReleaseStringUTFChars(env, ldLibraryPath, ld_library_path_c);
-	(*env)->ReleaseStringUTFChars(env, execFile, exec_file_c);
-	
-	char *exec_error_c = dlerror();
-	if (exec_error_c != NULL) {
-		LOGE("Error: %s", exec_error_c);
-		(*env)->ThrowNew(env, exception_cls, exec_error_c);
-		return -1;
-	}
-	
-	Main_Function_t Main_Function;
-	Main_Function = (Main_Function_t) dlsym(exec_binary_handle, "main");
-	
-	exec_error_c = dlerror();
-	if (exec_error_c != NULL) {
-		LOGE("Error: %s", exec_error_c);
-		(*env)->ThrowNew(env, exception_cls, exec_error_c);
-		return -1;
-	}
-	
-	int cmd_argv = (*env)->GetArrayLength(env, cmdArgs);
-	char **cmd_args_c = convert_to_char_array(env, cmdArgs);
-	int result = Main_Function(cmd_argv, cmd_args_c);
-	free_char_array(env, cmdArgs, cmd_args_c);
-	return result;
+
+JNIEnv* get_attached_env(JavaVM* jvm) {
+    if (jvm == NULL) return NULL;
+    JNIEnv *env = NULL;
+    jint status = (*jvm)->GetEnv(jvm, (void**)&env, JNI_VERSION_1_4);
+    if (status == JNI_OK) return env;
+    if (status == JNI_EDETACHED) {
+        if ((*jvm)->AttachCurrentThread(jvm, (void**)&env, NULL) == JNI_OK) {
+            return env;
+        }
+    }
+    return NULL;
 }
 
-// METHOD 2
-/*
-JNIEXPORT jint JNICALL Java_net_kdt_pojavlaunch_utils_JREUtils_executeForkedBinary(JNIEnv *env, jclass clazz, jobjectArray cmdArgs) {
-	int x, status;
-	x = fork();
-	if (x > 0) {
-		wait(&status);
-	} else {
-		execvpe();
-	}
-	return status;
+bool notifyLauncher(JNIEnv *dvm_env, int type, int actions[], int len) {
+    jintArray actionArray = (*dvm_env)->NewIntArray(dvm_env, len);
+    (*dvm_env)->SetIntArrayRegion(dvm_env, actionArray, 0, len, actions);
+    return (*dvm_env)->CallStaticBooleanMethod(dvm_env, pojav_environ->bridgeClazz,
+            pojav_environ->method_notifyLauncher, type, actionArray);
 }
-*/
+
+jintArray convertIntArrayJVM(JNIEnv* srcEnv, JNIEnv* dstEnv, jintArray srcIntArray) {
+	if (srcIntArray == NULL) {
+		return NULL;
+	}
+
+	jsize len = (*srcEnv)->GetArrayLength(srcEnv, srcIntArray);
+	jint* srcPtr = (*srcEnv)->GetIntArrayElements(srcEnv, srcIntArray, NULL);
+
+	jintArray dstIntArray = (*dstEnv)->NewIntArray(dstEnv, len);
+	(*dstEnv)->SetIntArrayRegion(dstEnv, dstIntArray, 0, len, srcPtr);
+
+	(*srcEnv)->ReleaseIntArrayElements(srcEnv, srcIntArray, srcPtr, JNI_ABORT);
+
+	return dstIntArray;
+}
 

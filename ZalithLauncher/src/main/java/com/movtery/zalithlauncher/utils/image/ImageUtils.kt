@@ -1,77 +1,136 @@
+/*
+ * Zalith Launcher 2
+ * Copyright (C) 2025-2026 MovTery <movtery228@qq.com> and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/gpl-3.0.txt>.
+ */
+
 package com.movtery.zalithlauncher.utils.image
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.drawable.BitmapDrawable
-import android.widget.ImageView
+import android.graphics.drawable.Drawable
+import androidx.core.graphics.createBitmap
+import androidx.core.graphics.get
+import coil3.decode.DecodeUtils
+import coil3.gif.isGif
+import com.movtery.zalithlauncher.utils.logging.Logger
+import okio.buffer
+import okio.source
 import java.io.File
-import kotlin.math.min
 
+private const val TAG = "ImageUtils"
 
-class ImageUtils {
-    companion object {
-        /**
-         * 通过 BitmapFactory 检查一个文件是否为一个图片
-         * @param file 文件
-         * @return 返回是否为图片
-         */
-        //使用源代码：https://github.com/lamba92/KImageCheck/blob/master/src/androidMain/kotlin/com/github/lamba92/utils/KImageCheck.kt#L12
-        @JvmStatic
-        fun isImage(file: File?): Boolean {
-            file?.apply {
-                if (isDirectory) return false
-                runCatching {
-                    val options = BitmapFactory.Options()
-                    options.inJustDecodeBounds = true
-                    BitmapFactory.decodeFile(path, options)
-                    return options.outWidth != -1 || options.outHeight != -1
-                }
+/**
+ * 将 [Drawable] 转换为 [Bitmap]
+ * 如果该 Drawable 已经是 [BitmapDrawable] 且其内部 Bitmap 不为 null，则直接返回该 Bitmap
+ * 否则渲染到一个新的 Bitmap 上
+ */
+fun Drawable.toBitmap(): Bitmap {
+    if (this is BitmapDrawable && this.bitmap != null) {
+        return this.bitmap
+    }
+
+    val width = if (intrinsicWidth > 0) intrinsicWidth else 1
+    val height = if (intrinsicHeight > 0) intrinsicHeight else 1
+
+    val bitmap = createBitmap(width, height)
+    val canvas = Canvas(bitmap)
+    setBounds(0, 0, canvas.width, canvas.height)
+    draw(canvas)
+
+    return bitmap
+}
+
+/**
+ * 遍历 Bitmap 的指定区域并执行谓词判断
+ *
+ * @param xRange X 轴坐标范围
+ * @param yRange Y 轴坐标范围
+ * @param predicate 谓词函数，参数为 (颜色值, x, y)
+ * @param requireAll 是否要求所有像素都满足谓词，默认为 false (任一满足即返回 true)
+ * @return 是否满足条件
+ */
+inline fun Bitmap.isColorMatch(
+    xRange: IntRange,
+    yRange: IntRange,
+    predicate: (color: Int, x: Int, y: Int) -> Boolean,
+    requireAll: Boolean = false
+): Boolean {
+    val width = this.width
+    val height = this.height
+
+    for (x in xRange) {
+        if (x !in 0 until width) continue
+        for (y in yRange) {
+            if (y !in 0 until height) continue
+            val match = predicate(this[x, y], x, y)
+            if (requireAll) {
+                if (!match) return false
+            } else {
+                if (match) return true
             }
-            return false
         }
+    }
+    return requireAll
+}
 
-        /**
-         * 通过计算图片的长款比例来计算缩放后的长款数据
-         * @param imageWidth 原始图片的长
-         * @param imageHeight 原始图片的宽
-         * @param maxSize 需要限制在多大的空间
-         * @return 返回一个缩放后的长宽数据对象
-         */
-        @JvmStatic
-        fun resizeWithRatio(imageWidth: Int, imageHeight: Int, maxSize: Int): Dimension {
-            val widthRatio = maxSize.toDouble() / imageWidth
-            val heightRatio = maxSize.toDouble() / imageHeight
+/**
+ * 如果 Bitmap 大于指定阈值，则回收它
+ */
+fun Bitmap?.recycleIfLarge(thresholdBytes: Int = 8 * 1024 * 1024) {
+    this ?: return
 
-            //选择较小的缩放比例，确保长宽按比例缩小且不超过maxSize限制
-            val ratio = min(widthRatio, heightRatio)
-            val newWidth = (imageWidth * ratio).toInt()
-            val newHeight = (imageHeight * ratio).toInt()
+    if (!isRecycled && byteCount >= thresholdBytes) {
+        recycle()
+    }
+}
 
-            return Dimension(newWidth, newHeight)
-        }
+/**
+ * 尝试判断文件是否为一个图片
+ */
+fun File.isImageFile(): Boolean {
+    if (!this.exists()) return false
 
-        /**
-         * 从一个 ImageView 中获取 Drawable，并将其转换为 Bitmap
-         */
-        @JvmStatic
-        fun getBitmapFromImageView(imageView: ImageView): Bitmap? {
-            val drawable = imageView.drawable ?: return null
+    return try {
+        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(this.absolutePath, options)
+        options.outWidth > 0 && options.outHeight > 0
+    } catch (e: Exception) {
+        Logger.warning(TAG,
+            "An exception occurred while trying to determine if ${this.absolutePath} is an image.",
+            e
+        )
+        false
+    }
+}
 
-            if (drawable is BitmapDrawable) {
-                return drawable.bitmap
-            }
+/**
+ * 判断文件是否为 GIF 图片
+ */
+fun File.isGifFile(): Boolean {
+    if (!this.exists()) return false
 
-            val width = drawable.intrinsicWidth.takeIf { it > 0 } ?: 1
-            val height = drawable.intrinsicHeight.takeIf { it > 0 } ?: 1
-
-            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-            val canvas = Canvas(bitmap)
-
-            drawable.mutate().setBounds(0, 0, canvas.width, canvas.height)
-            drawable.draw(canvas)
-
-            return bitmap
-        }
+    return try {
+        source().buffer().use { DecodeUtils.isGif(it) }
+    } catch (e: Exception) {
+        Logger.warning(TAG,
+            "An exception occurred while trying to determine if ${this.absolutePath} is a gif.",
+            e
+        )
+        false
     }
 }

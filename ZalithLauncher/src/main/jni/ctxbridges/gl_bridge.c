@@ -8,6 +8,7 @@
 #include <dlfcn.h>
 #include <stdbool.h>
 #include <environ/environ.h>
+#include <unistd.h>
 #include "gl_bridge.h"
 #include "egl_loader.h"
 
@@ -18,6 +19,23 @@
 static const char* g_LogTag = "GLBridge";
 static __thread gl_render_window_t* currentBundle;
 static EGLDisplay g_EglDisplay;
+
+static EGLBoolean bridge_eglMakeCurrent(EGLDisplay dpy, EGLSurface draw, EGLSurface read, EGLContext ctx) {
+    if (sfpew_eglMakeCurrent_p != NULL) return sfpew_eglMakeCurrent_p(dpy, draw, read, ctx);
+    return eglMakeCurrent_p(dpy, draw, read, ctx);
+}
+
+static EGLBoolean bridge_eglSwapBuffers(EGLDisplay dpy, EGLSurface draw) {
+    if (sfpew_eglSwapBuffers_p != NULL) return sfpew_eglSwapBuffers_p(dpy, draw);
+    return eglSwapBuffers_p(dpy, draw);
+}
+
+static EGLContext bridge_eglCreateContext(EGLDisplay dpy, EGLConfig config, EGLContext share_list,
+                                          const EGLint *attrib_list) {
+    if (sfpew_eglCreateContext_p != NULL)
+        return sfpew_eglCreateContext_p(dpy, config, share_list, attrib_list);
+    return eglCreateContext_p(dpy, config, share_list, attrib_list);
+}
 
 bool gl_init() {
     dlsym_EGL();
@@ -104,14 +122,15 @@ gl_render_window_t* gl_init_context(gl_render_window_t *share) {
         if (!bindResult) printf("EGLBridge: bind failed: %p\n", eglGetError_p());
     }
 
-    int libgl_es = strtol(getenv("LIBGL_ES"), NULL, 0);
+    const char *libgl_es_str = getenv("LIBGL_ES");
+    int libgl_es = libgl_es_str != NULL ? (int) strtol(libgl_es_str, NULL, 0) : 2;
     if (libgl_es < 0 || libgl_es > INT16_MAX) libgl_es = 2;
     const EGLint egl_context_attributes[] = { EGL_CONTEXT_CLIENT_VERSION, libgl_es, EGL_NONE };
-    bundle->context = eglCreateContext_p(g_EglDisplay, bundle->config, share == NULL ? EGL_NO_CONTEXT : share->context, egl_context_attributes);
+    bundle->context = bridge_eglCreateContext(g_EglDisplay, bundle->config, share == NULL ? EGL_NO_CONTEXT : share->context, egl_context_attributes);
 
     if (bundle->context == EGL_NO_CONTEXT)
     {
-        __android_log_print(ANDROID_LOG_ERROR, g_LogTag, "eglCreateContext_p() finished with error: %04x",
+        __android_log_print(ANDROID_LOG_ERROR, g_LogTag, "bridge_eglCreateContext() finished with error: %04x",
                             eglGetError_p());
         free(bundle);
         return NULL;
@@ -120,12 +139,7 @@ gl_render_window_t* gl_init_context(gl_render_window_t *share) {
 }
 
 void gl_swap_surface(gl_render_window_t* bundle) {
-    if (bundle->nativeSurface != NULL)
-        ANativeWindow_release(bundle->nativeSurface);
-
-    if (bundle->surface != NULL)
-        eglDestroySurface_p(g_EglDisplay, bundle->surface);
-
+    // 有新 Surface 待切换，这里直接切换
     if (bundle->newNativeSurface != NULL)
     {
         __android_log_print(ANDROID_LOG_ERROR, g_LogTag, "Switching to new native surface");
@@ -134,19 +148,50 @@ void gl_swap_surface(gl_render_window_t* bundle) {
         ANativeWindow_acquire(bundle->nativeSurface);
         ANativeWindow_setBuffersGeometry(bundle->nativeSurface, 0, 0, bundle->format);
         bundle->surface = eglCreateWindowSurface_p(g_EglDisplay, bundle->config, bundle->nativeSurface, NULL);
-    } else {
-        __android_log_print(ANDROID_LOG_ERROR, g_LogTag, "No new native surface, switching to 1x1 pbuffer");
-        bundle->nativeSurface = NULL;
-        const EGLint pbuffer_attrs[] = {EGL_WIDTH, 1 , EGL_HEIGHT, 1, EGL_NONE};
-        bundle->surface = eglCreatePbufferSurface_p(g_EglDisplay, bundle->config, pbuffer_attrs);
+        return;
     }
+
+    /*
+     * In some cases (see MinecraftGLSurface.start(), android kills the surface automatically for
+     * us, if we try to release/destroy it, we SIGSEGV. Check if we are -19x-19 or some other
+     * invalid value and skip the release because Android decided to handle releasing it for us.
+     * This goes against every piece of documentation I have ever seen but who actually reads those?
+     *
+     * Some drivers take forever to properly destroy the surface, they do it part at a time or
+     * some other garbage while SIGSEGVing us if we try releasing while they're in the middle of
+     * turning the surface dead. This makes the width and height make it look valid when it actually
+     * isn't so we wait for them and hope there is no race condition of both us and Android trying
+     * to release the surface. This seems driver dependent as AVD and Waydroid do not need 0.75s
+     * to set the bloody height and width to their proper values. They just do it, instantly.
+     */
+    usleep(750000); // An overkill amount of time to wait for a surface to finish dying
+    int32_t nativeWindowWidth = ANativeWindow_getWidth(pojav_environ->pojavWindow);
+    int32_t nativeWindowHeight = ANativeWindow_getHeight(pojav_environ->pojavWindow);
+    if ((nativeWindowWidth > 0) || (nativeWindowHeight > 0)) {
+        __android_log_print(ANDROID_LOG_INFO, g_LogTag, "Native surface dimensions (%d x %d)\n",
+                            nativeWindowWidth, nativeWindowHeight);
+        if (bundle->nativeSurface != NULL) {
+            ANativeWindow_release(bundle->nativeSurface);
+        }
+        if (bundle->surface != NULL) eglDestroySurface_p(g_EglDisplay, bundle->surface);
+    } else {
+        __android_log_print(ANDROID_LOG_WARN, g_LogTag,
+                            "Native surface dimensions (%d x %d) are invalid! Assuming android has already released window.\n",
+                            nativeWindowWidth, nativeWindowHeight);
+    }
+
+    // 无新窗口可用，回退到 1x1 pbuffer 避免渲染彻底中断
+    __android_log_print(ANDROID_LOG_ERROR, g_LogTag, "No new native surface, switching to 1x1 pbuffer");
+    bundle->nativeSurface = NULL;
+    const EGLint pbuffer_attrs[] = {EGL_WIDTH, 1 , EGL_HEIGHT, 1, EGL_NONE};
+    bundle->surface = eglCreatePbufferSurface_p(g_EglDisplay, bundle->config, pbuffer_attrs);
 }
 
 void gl_make_current(gl_render_window_t* bundle) {
 
     if (bundle == NULL)
     {
-        if (eglMakeCurrent_p(g_EglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT))
+        if (bridge_eglMakeCurrent(g_EglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT))
         {
             currentBundle = NULL;
         }
@@ -165,7 +210,7 @@ void gl_make_current(gl_render_window_t* bundle) {
     if (bundle->surface == NULL)
         gl_swap_surface(bundle);
 
-    if (eglMakeCurrent_p(g_EglDisplay, bundle->surface, bundle->surface, bundle->context))
+    if (bridge_eglMakeCurrent(g_EglDisplay, bundle->surface, bundle->surface, bundle->context))
     {
         currentBundle = bundle;
     } else {
@@ -183,19 +228,23 @@ void gl_make_current(gl_render_window_t* bundle) {
 void gl_swap_buffers() {
     if (currentBundle->state == STATE_RENDERER_NEW_WINDOW)
     {
-        eglMakeCurrent_p(g_EglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+        bridge_eglMakeCurrent(g_EglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
         gl_swap_surface(currentBundle);
-        eglMakeCurrent_p(g_EglDisplay, currentBundle->surface, currentBundle->surface, currentBundle->context);
+        bridge_eglMakeCurrent(g_EglDisplay, currentBundle->surface, currentBundle->surface, currentBundle->context);
         currentBundle->state = STATE_RENDERER_ALIVE;
     }
 
     if (currentBundle->surface != NULL)
-        if (!eglSwapBuffers_p(g_EglDisplay, currentBundle->surface) && eglGetError_p() == EGL_BAD_SURFACE)
+        if (!bridge_eglSwapBuffers(g_EglDisplay, currentBundle->surface) && eglGetError_p() == EGL_BAD_SURFACE)
         {
-            eglMakeCurrent_p(g_EglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+            bridge_eglMakeCurrent(g_EglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
             currentBundle->newNativeSurface = NULL;
             gl_swap_surface(currentBundle);
-            eglMakeCurrent_p(g_EglDisplay, currentBundle->surface, currentBundle->surface, currentBundle->context);
+            bridge_eglMakeCurrent(g_EglDisplay, currentBundle->surface, currentBundle->surface, currentBundle->context);
+            // 清理过期状态，避免下一帧重复进入 gl_swap_surface 导致回退到 1×1 pbuffer
+            if (currentBundle->nativeSurface != NULL && currentBundle->state == STATE_RENDERER_NEW_WINDOW) {
+                currentBundle->state = STATE_RENDERER_ALIVE;
+            }
             __android_log_print(ANDROID_LOG_INFO, g_LogTag, "The window has died, awaiting window change");
         }
 
@@ -211,8 +260,6 @@ void gl_setup_window() {
 }
 
 void gl_swap_interval(int swapInterval) {
-    if (pojav_environ->force_vsync) swapInterval = 1;
-
     eglSwapInterval_p(g_EglDisplay, swapInterval);
 }
 
