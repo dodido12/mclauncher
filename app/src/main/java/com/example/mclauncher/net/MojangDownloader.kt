@@ -95,7 +95,7 @@ class MojangDownloader(private val http: HttpClient, private val shared: File) {
 
         val total = jobs.size.toLong(); val done = AtomicLong()
         jobs.map { (name, job) ->
-            async(Dispatchers.IO) { sem.withPermit { job() }; onProgress(Progress("Archivos: $name", done.incrementAndGet(), total)) }
+            async(Dispatchers.IO) { sem.withPermit { retrying { job() } }; onProgress(Progress("Archivos: $name", done.incrementAndGet(), total)) }
         }.awaitAll()
 
         // 4) assets
@@ -105,22 +105,48 @@ class MojangDownloader(private val http: HttpClient, private val shared: File) {
     private suspend fun installAssets(assetIndex: JsonObject, onProgress: (Progress) -> Unit) = coroutineScope {
         val indexId = assetIndex.str("id")!!
         val indexFile = File(assetsDir, "indexes/$indexId.json")
-        http.downloadVerified(assetIndex.str("url")!!, indexFile, assetIndex.str("sha1"))
+        retrying { http.downloadVerified(assetIndex.str("url")!!, indexFile, assetIndex.str("sha1")) }
         val objects = Http.json.parseToJsonElement(indexFile.readText()).jsonObject["objects"]!!.jsonObject
         val isLegacy = indexId == "legacy" || indexId == "pre-1.6"
-        val sem = Semaphore(16); val done = AtomicLong(); val total = objects.size.toLong()
+        val sem = Semaphore(8); val done = AtomicLong(); val total = objects.size.toLong()
+        val failed = java.util.concurrent.ConcurrentLinkedQueue<String>()
         objects.entries.map { (name, v) ->
             async(Dispatchers.IO) {
-                sem.withPermit {
-                    val hash = v.jsonObject.str("hash")!!
-                    val obj = File(assetsDir, "objects/${hash.take(2)}/$hash")
-                    http.downloadVerified("$RESOURCES_URL/${hash.take(2)}/$hash", obj, hash)
-                    if (isLegacy) obj.copyTo(File(assetsDir, "virtual/legacy/$name"), overwrite = true)
+                val hash = v.jsonObject.str("hash")!!
+                val size = v.jsonObject.long("size")
+                val obj = File(assetsDir, "objects/${hash.take(2)}/$hash")
+                // Ya descargado (mismo tamaño): no volver a calcular SHA-1 de miles de archivos en cada arranque
+                val present = obj.isFile && (size == null || obj.length() == size)
+                if (!present) sem.withPermit {
+                    runCatching { retrying { http.downloadVerified("$RESOURCES_URL/${hash.take(2)}/$hash", obj, hash) } }
+                        .onFailure { failed += name }
                 }
+                if (isLegacy && obj.isFile) obj.copyTo(File(assetsDir, "virtual/legacy/$name"), overwrite = true)
                 val d = done.incrementAndGet()
                 if (d % 50 == 0L || d == total) onProgress(Progress("Assets", d, total))
             }
         }.awaitAll()
+        // Los assets son sonidos, idiomas e íconos: si unos pocos fallan el juego abre igual
+        // (se vuelven a intentar en el próximo arranque). Solo se aborta si falta casi todo.
+        if (failed.isNotEmpty()) {
+            onProgress(Progress("Aviso: ${failed.size} assets no se pudieron descargar (se reintentará la próxima vez)", total, total))
+            check(failed.size < total / 2) { "No se pudieron descargar ${failed.size} de $total assets. Revisa tu conexión." }
+        }
+    }
+
+    /**
+     * Reintenta una descarga hasta 4 veces con espera creciente (1, 2, 4 s). Los CDN de Mojang
+     * a veces dejan una conexión colgada; un solo timeout no debe abortar todo el lanzamiento.
+     */
+    private suspend fun <T> retrying(times: Int = 4, block: suspend () -> T): T {
+        var last: Throwable? = null
+        repeat(times) { attempt ->
+            try { return block() } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Throwable) {
+                last = e
+                if (attempt < times - 1) kotlinx.coroutines.delay(1000L shl attempt)
+            }
+        }
+        throw last!!
     }
 
     /** Evalúa "rules" del version.json fingiendo ser Linux aarch64 (lo que es Android a nivel de JVM). */
