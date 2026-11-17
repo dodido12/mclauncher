@@ -13,7 +13,7 @@ LOCAL_PATH := $(HERE_PATH)
 
 
 include $(CLEAR_VARS)
-LOCAL_LDLIBS := -ldl -llog -landroid
+LOCAL_LDLIBS := -ldl -llog -landroid -lnativewindow
 LOCAL_MODULE := pojavexec
 LOCAL_SHARED_LIBRARIES := driver_helper
 LOCAL_CFLAGS += -rdynamic
