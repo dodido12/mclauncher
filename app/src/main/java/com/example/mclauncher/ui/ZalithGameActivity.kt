@@ -69,6 +69,10 @@ class ZalithGameActivity : Activity(), SurfaceHolder.Callback, InputManager.Inpu
 
         LwjglBridge.zalith = true
         CallbackBridge.appContext = applicationContext
+        // Igual que ZalithLauncher para Minecraft 1.13+: los eventos táctiles/teclado se encolan y
+        // el hilo del juego los procesa en cada cuadro (glfwPollEvents). Sin esto los callbacks de
+        // GLFW se llaman desde el hilo de Android y Minecraft ignora los clics en los menús.
+        CallbackBridge.nativeSetUseInputStackQueue(true)
         JREUtils.exitListener = JREUtils.ExitListener { code, isSignal -> recordExit(code, if (isSignal) "señal $code" else null) }
         // Salida normal (código 0): libpojavexec llama a System.exit(0) de Android
         Runtime.getRuntime().addShutdownHook(Thread { recordExit(0, null) })
