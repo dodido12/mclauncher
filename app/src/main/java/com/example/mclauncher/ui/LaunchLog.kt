@@ -10,6 +10,23 @@ import java.io.File
 object LaunchLog {
     const val EXIT_FILE = "last_exit.txt"
     const val LOG_FILE = "last_launch.log"
+    /** Pasos y errores de la preparación (lado launcher, antes de abrir el juego). */
+    const val PREPARE_FILE = "last_prepare.log"
+    private const val TAG = "MCLauncher"
+
+    fun clear(instanceDir: File) {
+        listOf(EXIT_FILE, LOG_FILE, PREPARE_FILE).forEach { File(instanceDir, it).delete() }
+    }
+
+    fun stage(instanceDir: File, msg: String) {
+        android.util.Log.i(TAG, msg)
+        runCatching { File(instanceDir, PREPARE_FILE).appendText("${java.time.LocalTime.now().withNano(0)} $msg\n") }
+    }
+
+    fun error(instanceDir: File, t: Throwable) {
+        android.util.Log.e(TAG, "La preparación falló", t)
+        runCatching { File(instanceDir, PREPARE_FILE).appendText("ERROR: ${android.util.Log.getStackTraceString(t)}\n") }
+    }
 
     /** Últimas líneas de logcat de esta app (todos sus procesos). */
     fun readLogcat(maxLines: Int = 3000): String = runCatching {
@@ -46,6 +63,12 @@ object LaunchLog {
         appendLine(describeExit(code))
         File(instanceDir, EXIT_FILE).takeIf { it.exists() }?.readLines()?.drop(1)?.forEach { appendLine(it) }
 
+        File(instanceDir, PREPARE_FILE).takeIf { it.exists() }?.let { f ->
+            appendLine()
+            appendLine("== Preparación (launcher) ==")
+            appendLine(f.readLines().takeLast(80).joinToString("\n"))
+        }
+
         val saved = File(instanceDir, LOG_FILE).takeIf { it.exists() }?.readText()
         val logcat = saved ?: readLogcat()
         appendLine()
@@ -65,7 +88,7 @@ object LaunchLog {
     }
 
     private val TAGS = listOf(
-        "mcl_", "HotSpot", "Minecraft", "GameActivity", "JreManager", "FramePacer", "HdrDisplayManager",
+        "MCLauncher", "mcl_", "HotSpot", "Minecraft", "GameActivity", "JreManager", "FramePacer", "HdrDisplayManager",
         "AndroidRuntime", "libc", "DEBUG", "linker", "zink", "MESA", "Mesa", "gl4es", "LIBGL", "vulkan", "System.err"
     )
 

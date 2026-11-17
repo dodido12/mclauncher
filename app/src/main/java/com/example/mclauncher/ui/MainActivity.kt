@@ -158,14 +158,26 @@ private fun LauncherScreen(app: LauncherApp, launcher: MinecraftLauncher) {
                         Button(enabled = selectedAccount != null && !busy, onClick = {
                             scope.launch {
                                 busy = true
+                                val instDir = app.instances.instanceDir(inst.id)
+                                LaunchLog.clear(instDir)
+                                var lastStage = ""
                                 runCatching {
+                                    LaunchLog.stage(instDir, "Jugar: ${inst.minecraftVersion} · ${inst.loader} · ${inst.renderer} · ${inst.ramMb} MB")
                                     val session = app.accounts.sessionFor(selectedAccount!!.id)
                                     if (session.offline) status = "Sin internet: jugando en modo un jugador con tu cuenta verificada"
-                                    launcher.prepare(inst, session) { s, p -> status = s; progress = p }
+                                    launcher.prepare(inst, session) { s, p ->
+                                        status = s; progress = p
+                                        val key = s.substringBefore(':')
+                                        if (key != lastStage) { lastStage = key; LaunchLog.stage(instDir, s) }
+                                    }
+                                    LaunchLog.stage(instDir, "Preparación completa: abriendo GameActivity")
                                     launcher.start(inst)
                                     instances = app.instances.list()   // el renderizador pudo cambiar a Zink
                                     status = "Abriendo el juego… Si no abre, toca \"Registro\" en la instancia."
-                                }.onFailure { status = "Error: ${it.message ?: it.javaClass.simpleName}" }
+                                }.onFailure {
+                                    LaunchLog.error(instDir, it)
+                                    status = "Error: ${it.message ?: it.javaClass.simpleName}"
+                                }
                                 busy = false
                             }
                         }) { Text("Jugar") }
