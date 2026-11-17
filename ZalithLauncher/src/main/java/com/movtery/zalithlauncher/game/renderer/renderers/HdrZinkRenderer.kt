@@ -30,7 +30,13 @@ object HdrZinkRenderer : RendererInterface {
 
     override fun getDisplayMaxMCVersion(): String = "26.2"
 
-    override fun getRendererEnv(): Lazy<Map<String, String>> = lazy { emptyMap() }
+    /**
+     * Driver Vulkan del sistema: el Turnip incluido (Mesa 24.3) no soporta Adreno 8xx
+     * y Zink se cae al crear el dispositivo (SIGSEGV en libOSMesa_8.so).
+     */
+    override fun getRendererEnv(): Lazy<Map<String, String>> = lazy {
+        mapOf("POJAV_ZINK_PREFER_SYSTEM_DRIVER" to "1")
+    }
 
     override fun getDlopenLibrary(): Lazy<List<String>> = lazy { emptyList() }
 
