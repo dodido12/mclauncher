@@ -22,7 +22,7 @@ CMAKE="${CMAKE:-cmake}"
 JOBS="${JOBS:-$(nproc)}"
 
 LWJGL_TAG="${LWJGL_TAG:-3.4.1}"   # debe coincidir con MinecraftLauncher.LWJGL_VERSION
-LIBFFI_VER=3.4.6
+LIBFFI_VER=3.5.2   # LWJGL 3.4 usa ffi_get_version, ffi_get_closure_size… (libffi 3.5+)
 OPENAL_TAG=1.23.1
 FREETYPE_TAG=VER-2-13-2
 LIBDRM_TAG=libdrm-2.4.124
