@@ -28,6 +28,7 @@ import com.example.mclauncher.launch.MinecraftLauncher
 import com.example.mclauncher.net.Http
 import com.example.mclauncher.net.ModrinthClient
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 /** UI mínima de referencia: cuentas, instancias, Modrinth y lanzamiento. */
 class MainActivity : ComponentActivity() {
@@ -54,6 +55,7 @@ private fun LauncherScreen(app: LauncherApp, launcher: MinecraftLauncher) {
     var showSettings by remember { mutableStateOf(false) }
     var modrinthFor by remember { mutableStateOf<InstanceConfig?>(null) }
     var logFor by remember { mutableStateOf<InstanceConfig?>(null) }
+    var deleteFor by remember { mutableStateOf<InstanceConfig?>(null) }
     var pendingPkce by remember { mutableStateOf<MicrosoftAuth.Pkce?>(null) }
 
     LaunchedEffect(Unit) {
@@ -147,14 +149,16 @@ private fun LauncherScreen(app: LauncherApp, launcher: MinecraftLauncher) {
             }
             LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(instances, key = { it.id }) { inst ->
-                    Card { Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(inst.name, style = MaterialTheme.typography.titleSmall)
-                            Text("${inst.minecraftVersion} · ${inst.loader.name.lowercase()} · ${inst.renderer} · ${inst.ramMb} MB" + if (inst.hdr.enabled) " · HDR" else "",
-                                style = MaterialTheme.typography.bodySmall)
-                        }
+                    Card { Column(Modifier.padding(12.dp)) {
+                        Text(inst.name, style = MaterialTheme.typography.titleSmall)
+                        Text("${inst.minecraftVersion} · ${inst.loader.name.lowercase()} · ${inst.renderer} · ${inst.ramMb} MB" + if (inst.hdr.enabled) " · HDR" else "",
+                            style = MaterialTheme.typography.bodySmall)
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         TextButton({ modrinthFor = inst }) { Text("Mods") }
                         TextButton({ logFor = inst }) { Text("Registro") }
+                        TextButton({ deleteFor = inst }, enabled = !busy,
+                            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Borrar") }
+                        Spacer(Modifier.weight(1f))
                         Button(enabled = selectedAccount != null && !busy, onClick = {
                             scope.launch {
                                 busy = true
@@ -181,7 +185,7 @@ private fun LauncherScreen(app: LauncherApp, launcher: MinecraftLauncher) {
                                 busy = false
                             }
                         }) { Text("Jugar") }
-                    } }
+                    } } }
                 }
             }
             if (status.isNotEmpty()) {
@@ -194,15 +198,34 @@ private fun LauncherScreen(app: LauncherApp, launcher: MinecraftLauncher) {
     if (showSettings) SettingsDialog(app.msaClientId, onDismiss = { showSettings = false }) {
         app.msaClientId = it; showSettings = false; status = "Client ID guardado. Toca \"Iniciar sesión con Microsoft\"."
     }
-    if (showCreate) CreateInstanceDialog(onDismiss = { showCreate = false }) { name, ver, loader, renderer, hdr ->
+    if (showCreate) CreateInstanceDialog(
+        recommendedRam = app.instances.recommendedRamMb(), maxRam = app.instances.maxRamMb(),
+        onDismiss = { showCreate = false }
+    ) { name, ver, loader, renderer, hdr, ram ->
         scope.launch {
-            val c = app.instances.create(name, ver, loader, renderer = renderer)
+            val c = app.instances.create(name, ver, loader, renderer = renderer, ramMb = ram)
             if (hdr) app.instances.update(c.id) { it.copy(hdr = it.hdr.copy(enabled = true)) }
             instances = app.instances.list(); showCreate = false
         }
     }
     modrinthFor?.let { inst -> ModrinthDialog(app, inst) { modrinthFor = null } }
     logFor?.let { inst -> LogDialog(app, inst) { logFor = null } }
+    deleteFor?.let { inst ->
+        AlertDialog(onDismissRequest = { deleteFor = null }, title = { Text("¿Borrar \"${inst.name}\"?") },
+            text = { Text("Se borran sus mundos, mods, resourcepacks, shaders y ajustes. No se puede deshacer.") },
+            confirmButton = {
+                Button({
+                    deleteFor = null
+                    scope.launch {
+                        runCatching { app.instances.delete(inst.id) }
+                            .onSuccess { status = "Instancia \"${inst.name}\" borrada" }
+                            .onFailure { status = "No se pudo borrar: ${it.message}" }
+                        instances = app.instances.list()
+                    }
+                }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { Text("Borrar") }
+            },
+            dismissButton = { TextButton({ deleteFor = null }) { Text("Cancelar") } })
+    }
 }
 
 @Composable
@@ -248,19 +271,32 @@ private fun SettingsDialog(current: String, onDismiss: () -> Unit, onSave: (Stri
 }
 
 @Composable
-private fun CreateInstanceDialog(onDismiss: () -> Unit, onCreate: (String, String, LoaderType, RendererType, Boolean) -> Unit) {
+private fun CreateInstanceDialog(
+    recommendedRam: Int, maxRam: Int, onDismiss: () -> Unit,
+    onCreate: (String, String, LoaderType, RendererType, Boolean, Int) -> Unit
+) {
+    val minRam = 1024
+    val topRam = maxRam.coerceAtLeast(minRam + 512)
+    var ram by remember { mutableFloatStateOf(recommendedRam.coerceIn(minRam, topRam).toFloat()) }
     var name by remember { mutableStateOf("Mi mundo") }
     var version by remember { mutableStateOf("1.21.1") }
     var loader by remember { mutableStateOf(LoaderType.FABRIC) }
     var renderer by remember { mutableStateOf(RendererType.ZINK_VULKAN) }
     AlertDialog(onDismissRequest = onDismiss, title = { Text("Nueva instancia") },
-        text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(name, { name = it }, label = { Text("Nombre") })
             OutlinedTextField(version, { version = it }, label = { Text("Versión de Minecraft") })
             Text("Loader"); Row { LoaderType.entries.forEach { l -> FilterChip(loader == l, { loader = l }, { Text(l.name.lowercase()) }) } }
             Text("Renderizador"); Row { RendererType.entries.forEach { r -> FilterChip(renderer == r, { renderer = r }, { Text(r.name) }) } }
+            val ramMb = (ram / 256f).roundToInt() * 256
+            Text("RAM: $ramMb MB (${"%.1f".format(ramMb / 1024f)} GB)")
+            Slider(value = ram, onValueChange = { ram = it }, valueRange = minRam.toFloat()..topRam.toFloat())
+            Text("Recomendado: $recommendedRam MB · Máximo para tu teléfono: $topRam MB. " +
+                "Más RAM no siempre es mejor: deja memoria para Android y la GPU.", style = MaterialTheme.typography.bodySmall)
         } },
-        confirmButton = { Button({ onCreate(name, version, loader, renderer, renderer == RendererType.ZINK_VULKAN_HDR) }) { Text("Crear") } },
+        confirmButton = { Button({
+            onCreate(name, version, loader, renderer, renderer == RendererType.ZINK_VULKAN_HDR, (ram / 256f).roundToInt() * 256)
+        }) { Text("Crear") } },
         dismissButton = { TextButton(onDismiss) { Text("Cancelar") } })
 }
 
