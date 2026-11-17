@@ -194,7 +194,10 @@ public class MainActivity extends BaseActivity implements ControlButtonMenuListe
 
             // HDR por instancia: ventana en modo HDR y superficie FP16 (ver hdr_output.c)
             MinecraftGLSurface.sHdr = JREUtils.isHdrActive(minecraftVersion);
-            if (MinecraftGLSurface.sHdr) enableHdrWindow();
+            if (MinecraftGLSurface.sHdr) {
+                enableHdrWindow();
+                getWindow().setBackgroundDrawable(null);
+            }
 
             setTitle("Minecraft " + minecraftVersion.getVersionName());
 

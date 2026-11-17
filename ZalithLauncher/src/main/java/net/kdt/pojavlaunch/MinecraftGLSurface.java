@@ -365,7 +365,7 @@ public class MinecraftGLSurface extends View implements GrabListener {
             Logging.w("MGLSurface", "Attempt to refresh size on null surface");
             return;
         }
-        if(AllSettings.getAlternateSurface().getValue()){
+        if(mSurface instanceof SurfaceView){
             SurfaceView view = (SurfaceView) mSurface;
             if(view.getHolder() != null){
                 view.getHolder().setFixedSize(windowWidth, windowHeight);
