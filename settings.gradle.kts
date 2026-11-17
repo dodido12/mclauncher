@@ -1,10 +1,19 @@
 pluginManagement {
-    repositories { google(); mavenCentral(); gradlePluginPortal() }
+    repositories {
+        gradlePluginPortal()
+        google()
+    }
 }
+
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
-    repositories { google(); mavenCentral() }
+    repositories {
+        google()
+        mavenCentral()
+        maven("https://jitpack.io")
+    }
 }
-rootProject.name = "MCLauncher"
-include(":app")
-include(":zalith")
+
+rootProject.name = "Zalith Launcher"
+include(":jre_lwjgl3glfw")
+include(":ZalithLauncher")

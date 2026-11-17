@@ -17,28 +17,25 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      # El runner ya trae el Android SDK en $ANDROID_HOME; solo faltan los paquetes concretos.
-      - name: Instalar SDK 36, NDK r28c y CMake
+      # El runner ya trae el Android SDK en $ANDROID_HOME; faltan los paquetes que usa ZalithLauncher.
+      - name: Instalar SDK 34, build-tools 34 y NDK r25c
         run: |
           SDKM=$(ls -d "$ANDROID_HOME"/cmdline-tools/*/bin | sort -V | tail -1)/sdkmanager
           yes | "$SDKM" --licenses > /dev/null || true
-          "$SDKM" "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358" "cmake;3.22.1"
-
-      # Natives de LWJGL (liblwjgl*.so) desde el código oficial, misma versión que los jars
-      - name: Compilar natives de LWJGL
-        run: |
-          sudo apt-get install -y ninja-build > /dev/null
-          ANDROID_NDK="$ANDROID_HOME/ndk/28.2.13676358" CMAKE="$ANDROID_HOME/cmake/3.22.1/bin/cmake" \
-            PATH="$ANDROID_HOME/cmake/3.22.1/bin:$PATH" ONLY=lwjgl bash natives/build-natives.sh
+          "$SDKM" "platforms;android-34" "build-tools;34.0.0" "ndk;25.2.9519653"
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Compilar (debug)
+      # Igual que el workflow de ZalithLauncher: primero el GLFW en Java (lwjgl-glfw-classes.jar)
+      - name: Compilar jre_lwjgl3glfw
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug --stacktrace
+          ./gradlew jre_lwjgl3glfw:build --no-daemon
+
+      - name: Compilar ZalithLauncher (debug, arm64)
+        run: ./gradlew ZalithLauncher:assembleDebug -Darch=arm64 --no-daemon --stacktrace
 
       - uses: actions/upload-artifact@v4
         with:
-          name: mclauncher-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          name: zalith-hdr-debug-apk
+          path: ZalithLauncher/build/outputs/apk/debug/*.apk

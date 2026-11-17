@@ -1,6 +1,10 @@
-.gradle/
-build/
-app/build/
+/.gradle
+/build
+/*/build
 local.properties
-natives/.work/
-*.apk
+.idea/
+.vscode/
+/curseforge_key.txt
+/ZalithLauncher/.cxx/
+/ZalithLauncher/src/main/assets/components/lwjgl3/
+/ZalithLauncher/release/

@@ -1,143 +1,65 @@
-# MC Launcher (Android · Kotlin + C++/NDK)
+<div align="center">
+    <img width="256" src="ZalithLauncher/src/main/res/drawable/app_name_title.png"></img>
+</div>
 
-**Licencia: GPLv3** (ver `LICENSE`). El motor de juego "Zalith" incluye código de
-[ZalithLauncher](https://github.com/ZalithLauncher/ZalithLauncher) / PojavLauncher, que es GPLv3;
-por eso todo el launcher se distribuye bajo GPLv3 y su código fuente debe publicarse junto al APK.
+<div align="center">
 
-## Motor de juego
+[![Android CI](https://github.com/ZalithLauncher/ZalithLauncher/actions/workflows/android.yml/badge.svg)](https://github.com/ZalithLauncher/ZalithLauncher/actions/workflows/android.yml)
+![Downloads](https://img.shields.io/github/downloads/ZalithLauncher/ZalithLauncher/total)
+[![Sponsor](https://img.shields.io/badge/sponsor-30363D?logo=GitHub-Sponsors)](https://afdian.com/a/MovTery)
 
-El launcher usa solo el motor **Zalith**. El motor propio sigue en el código (`app/src/main/cpp`,
-`GameActivity`) pero ya no se ofrece. **HDR**: activado por defecto con Zink; botón "HDR" en cada instancia
-y dentro del juego para calibrar blanco de referencia, brillo máximo e inicio de las altas luces (en vivo).
+</div>
 
-### Motores disponibles en el código
+- <a href="/README_ZH_CN.md">简体中文</a>丨<a href="/README-ZH_TW.md">繁體中文</a>
+- Zalith Launcher is a Minecraft launcher based on [PojavLauncher](https://github.com/PojavLauncherTeam/PojavLauncher) that runs [Minecraft: Java Edition](https://www.minecraft.net/) on Android devices.
+- Zalith Launcher aims to enhance user experience by redesigning the app interface, adding more practical features, and lowering the barrier to entry, making it easier for more people to enjoy Minecraft.
 
-| Motor | Qué usa | HDR |
-|---|---|---|
-| **Zalith** (por defecto) | `libpojavexec` de ZalithLauncher, su GLFW en Java (LWJGL 3.3.6), Mesa 23 OSMesa + Zink, `VMLauncher`/JLI | Sí: `ctxbridges/hdr_output.c` convierte cada cuadro a scRGB FP16 con expansión de altas luces |
-| **Propio** | Shim GLFW en C (`app/src/main/cpp`), LWJGL 3.4.1, Mesa 25 EGL + Zink, presentador Vulkan | Sí: swapchain HDR10 PQ |
+> [!WARNING]
+> Attention! This project is only a **community remake**, just like PojavLauncher is developed based on [Boardwalk](https://github.com/zhuowei/Boardwalk).  
+> We are planning to build the official website [zalithlauncher.cn](https://zalithlauncher.cn). Please note, our website domain ends with `.cn`, not `.com`! **That is not our site!** We do not participate in, accept, or trust that site! Please be careful to distinguish it and protect your personal privacy!
 
-Launcher multi-instancia de Minecraft: Java Edition para Android arm64, con OpenJDK 8/17/21/25,
-renderizadores GL4ES y Zink/Vulkan con salida HDR10, controles táctiles, mandos, cuentas
-Microsoft u offline y mods desde Modrinth.
+<h2 align="center">New Features</h2>
 
-## Estructura
+- [x] Refactored app layout for improved aesthetics and usability.
+- [x] Built-in simple file manager to eliminate worries about Android permission restrictions!
+- [x] Better version management, customizable game directory location, allowing settings in external storage directories.
+- [x] Add more renderers, with support for renderer plugins!
+- [x] Download Mods, ModPacks, resource packs, saves, and shader packs directly within the launcher!
+- [x] Customizable virtual mouse icon and launcher background image.
+- [x] Light and dark themes available.
+- [x] And more features!
 
-```
-app/src/main/
-├─ AndroidManifest.xml            GameActivity en proceso ":game", colorMode=hdr, isGame
-├─ assets/controls/default_layout.json
-├─ assets/runtimes/               (opcional) jre-<N>-aarch64.tar.xz
-├─ jniLibs/arm64-v8a/             binarios de terceros (Mesa, gl4es, LWJGL Android, shim GLFW)
-├─ cpp/
-│  ├─ CMakeLists.txt              compila libmcl_native.so + shaders GLSL→SPIR-V (glslc del NDK)
-│  ├─ include/mcl_native.h        estado + API C para el shim GLFW (eventos, contexto, swap)
-│  ├─ include/vk_hdr_presenter.h
-│  ├─ jni_bridge.cpp              JNI de NativeBridge / LwjglBridge
-│  ├─ jvm_launcher.cpp            dlopen(libjvm) + JNI_CreateJavaVM + main()
-│  ├─ gl_loader.cpp               "libGL" para LWJGL: gl4es o Mesa EGL/Zink, redirección FBO 0
-│  ├─ vk_hdr_presenter.cpp        swapchain A2B10G10R10 + HDR10_ST2084, metadatos ST 2086
-│  ├─ input_bridge.cpp            cola de eventos táctil/teclado/mouse/mando
-│  └─ shaders/                    triángulo completo + composición PQ / tone mapping
-└─ java/com/example/mclauncher/
-   ├─ instance/  InstanceConfig.kt, InstanceManager.kt
-   ├─ jre/       JreManager.kt          (Java 25: G1, CompactObjectHeaders, Vector API, VThreads)
-   ├─ display/   HdrDisplayManager.kt, FramePacer.kt
-   ├─ net/       Http.kt, MojangDownloader.kt, ModrinthClient.kt
-   ├─ auth/      AccountManager.kt, MicrosoftAuth.kt, TokenVault.kt
-   ├─ input/     TouchControlsEngine.kt, GamepadManager.kt, LwjglBridge.kt
-   ├─ launch/    MinecraftLauncher.kt, VersionResolver.kt, NativeBridge.kt, LaunchSpec.kt
-   └─ ui/        MainActivity.kt (Compose), GameActivity.kt
-```
+<h2 align="center">Screenshots</h2>
 
-Disco en el dispositivo:
+![Screenshot1](/.github/images/Screenshot_Launcher_Light_EN_US.jpg)
+![Screenshot2](/.github/images/Screenshot_Launcher_Dark_EN_US.jpg)
+![Screenshot3](/.github/images/Screenshot_Game_EN_US.jpg)
 
-```
-files/shared/{versions,libraries,assets}     descargas de Mojang compartidas
-files/instances/<id>/instance.json
-files/instances/<id>/.minecraft/{mods,resourcepacks,shaderpacks,saves,config}
-files/runtimes/java-<N>/
-```
+<h2 align="center">License</h2>
 
-## Flujo de arranque
+- Zalith Launcher is open source under the GPL v3 license.
 
-1. `MinecraftLauncher.prepare()`: resuelve vanilla + loader (Fabric/Quilt por meta API),
-   descarga y verifica por SHA-1 desde el CDN de Mojang, elige el JRE según
-   `javaVersion.majorVersion`, arma classpath y argumentos y escribe `launch_spec.json`.
-2. `GameActivity` (proceso `:game`) crea el `SurfaceView`, negocia HDR y arranca HotSpot en un hilo de 8 MB.
-3. El shim GLFW de LWJGL llama a `mcl_create_context` / `mcl_swap_buffers` / `mcl_poll_event`.
-4. Con Zink, el juego dibuja en FBOs respaldados por memoria Vulkan (`GL_EXT_memory_object_fd`)
-   y `HdrPresenter` compone en el swapchain SDR o HDR10.
+<h2 align="center">Special Thanks</h2>
 
-## Estado
+This project uses several useful code libraries. Special thanks to them!
 
-| Pieza | Estado |
-|---|---|
-| Proyecto Kotlin + C++ | Compila (`./gradlew assembleDebug`, AGP 8.12, NDK r28c) |
-| `libglfw.so` (cpp/glfw) | Implementa la API de GLFW 3.4 + IME de 3.5 (vacías); cubre todas las que pide LWJGL 3.4.1 |
-| LWJGL 3.4.1 natives (`liblwjgl*.so`) | Los compila GitHub Actions desde el C oficial en cada build (`ONLY=lwjgl natives/build-natives.sh`) |
-| OpenAL Soft 1.23.1 | Compilado (backend OpenSL ES) |
-| FreeType 2.13.2 | Compilado |
-| gl4es | Compilado (`libgl4es_114.so`) |
-| Mesa 25.3.6 Zink + EGL surfaceless | Compilado (`libEGL_mesa.so` + `libgallium-25.3.6.so`) |
-| Java 17 / 21 / 25 | Se descargan del repositorio oficial de Termux (bionic aarch64) con SHA-256; Java 8 → 17 |
-| Forge / NeoForge | `ForgeInstaller` ejecuta el instalador oficial en el proceso `:installer` |
+#### Code Libraries Used by PojavLauncher
 
-## Si el juego no abre
+>- [Boardwalk](https://github.com/zhuowei/Boardwalk) (JVM Launcher): Unknown license / [Apache License 2.0](https://github.com/zhuowei/Boardwalk/blob/master/LICENSE) or GNU GPLv2.
+>- Android Support Library: [Apache License 2.0](https://android.googlesource.com/platform/prebuilts/maven_repo/android/+/master/NOTICE.txt).
+>- [GL4ES](https://github.com/PojavLauncherTeam/gl4es): [MIT License](https://github.com/ptitSeb/gl4es/blob/master/LICENSE).
+>- [OpenJDK](https://github.com/PojavLauncherTeam/openjdk-multiarch-jdk8u): [GNU GPLv2 License](https://openjdk.java.net/legal/gplv2+ce.html).
+>- [LWJGL3](https://github.com/PojavLauncherTeam/lwjgl3): [BSD-3 License](https://github.com/LWJGL/lwjgl3/blob/master/LICENSE.md).
+>- [LWJGLX](https://github.com/PojavLauncherTeam/lwjglx) (LWJGL2 API compatibility layer for LWJGL3): Unknown license.
+>- [Mesa 3D Graphics Library](https://gitlab.freedesktop.org/mesa/mesa): [MIT License](https://docs.mesa3d.org/license.html).
+>- [pro-grade](https://github.com/pro-grade/pro-grade) (Java Sandbox Security Manager): [Apache License 2.0](https://github.com/pro-grade/pro-grade/blob/master/LICENSE.txt).
+>- [bhook](https://github.com/bytedance/bhook) (For exit code capture): [MIT License](https://github.com/bytedance/bhook/blob/main/LICENSE).
+>- [libepoxy](https://github.com/anholt/libepoxy): [MIT License](https://github.com/anholt/libepoxy/blob/master/COPYING).
+>- [virglrenderer](https://github.com/PojavLauncherTeam/virglrenderer): [MIT License](https://gitlab.freedesktop.org/virgl/virglrenderer/-/blob/master/COPYING).
 
-Toca **Registro** en la instancia. Muestra el código de salida, las líneas de logcat del proceso del juego
-(HotSpot, Mesa/Zink, gl4es, LWJGL), el final de `.minecraft/logs/latest.log` y el `hs_err_pid*.log` si la JVM crasheó.
-El botón **Copiar** lo deja en el portapapeles para compartirlo.
+#### Additional Code Libraries Used by Zalith Launcher
 
-GitHub Actions (`.github/workflows/build.yml`) compila el APK debug en cada push; descárgalo desde la pestaña Actions.
-
-Para recompilar todas las librerías nativas desde cero: `ANDROID_NDK=... ./natives/build-natives.sh`.
-
-## Pasos que siguen dependiendo de ti
-
-| Qué | Por qué |
-|---|---|
-| Registrar una app en Azure (cuentas personales, "public client flows") y poner `MSA_CLIENT_ID=...` en `gradle.properties` | El login de Microsoft necesita tu propio client ID |
-| Pedir a Mojang que apruebe ese client ID para `api.minecraftservices.com` | Sin aprobación, `login_with_xbox` responde 403 |
-| Cambiar `MODRINTH_UA` en `app/build.gradle.kts` | Modrinth exige un User-Agent que identifique tu proyecto |
-| Probar en el teléfono | Nada se ha ejecutado aún en un dispositivo real |
-
-### Límites conocidos
-
-- **gl4es** solo da OpenGL 2.1: sirve para Minecraft ≤ 1.16. Desde 1.17 usa Zink.
-- **LWJGL** se fuerza a 3.4.1 (lo que pide Minecraft 26.x). Versiones viejas que pedían 3.3.x usan la API 3.4,
-  casi siempre compatible. Para cambiarla: `LWJGL_VERSION` (MinecraftLauncher.kt) y `LWJGL_TAG` (build-natives.sh).
-- **Minecraft 1.12 y anteriores** usan LWJGL 2: no están soportados.
-
-## HDR: qué hace y qué no
-
-- **Lo que sí hace:** pide `COLOR_MODE_HDR`, un `SurfaceView` RGBA_1010102, `Window.setDesiredHdrHeadroom` (Android 15+),
-  escucha el `hdrSdrRatio` del panel (Android 14+) y crea un swapchain `A2B10G10R10 + VK_COLOR_SPACE_HDR10_ST2084_EXT`
-  con metadatos estáticos (`vkSetHdrMetadataEXT`).
-- **Modo `inverse_tonemap`:** el juego sigue en SDR. El presentador expande las altas luces hacia el pico del panel,
-  y la UI queda a 203 nits.
-- **Modo `shader_linear`:** las imágenes compartidas son RGBA16F. Necesitas un shaderpack de Iris que escriba
-  luminancia lineal sin limitar (1.0 = blanco de papel) en su pase final. Los shaderpacks normales hacen tone mapping
-  a [0,1], así que en este modo se verían igual que en SDR.
-- **HDR10+:** se detecta, pero Android no tiene API pública para metadatos dinámicos en superficies renderizadas por la app.
-  Se envía HDR10 estático.
-
-## Poco F8 Ultra / chip de pantalla de HyperOS
-
-El MEMC y la super resolución del coprocesador de pantalla de Xiaomi no tienen API pública: los activa Game Turbo
-por app. El launcher hace lo que sí está a su alcance:
-
-- Se declara como juego (`appCategory="game"`, `isGame`, `game_mode_config`).
-- Fija la tasa de refresco con `Surface.setFrameRate`.
-- Informa la carga de cada frame con `PerformanceHintManager`.
-- Sincroniza con `Choreographer`.
-- Ofrece `renderScale` vía `setFixedSize`, para que el escalador de hardware haga el reescalado.
-
-## Aspectos legales
-
-- El APK no contiene archivos de Mojang. Todo se descarga desde `launchermeta.mojang.com` / `resources.download.minecraft.net`
-  en el dispositivo del usuario.
-- Por defecto, los perfiles offline solo se habilitan después de iniciar sesión con una cuenta Microsoft que tenga el juego
-  (`AccountManager.requireOwnershipForOffline`).
-- Respeta las licencias de los binarios de terceros: OpenJDK (GPLv2+CE), Mesa/gl4es (MIT), LWJGL (BSD).
-- No uses "Minecraft" en el nombre del launcher ni en su ícono (directrices de marca de Mojang).
+>- [HMCL](https://github.com/HMCL-dev/HMCL) (uses some source code): [GPL-3.0 License](https://github.com/HMCL-dev/HMCL/blob/main/LICENSE)
+>- [CommonMark](https://github.com/thephpleague/commonmark) (for rendering Markdown text): [BSD-3-Clause License](https://github.com/thephpleague/commonmark/blob/2.5/LICENSE)
+>- [AndroidViewAnimations](https://github.com/daimajia/AndroidViewAnimations) (uses part of the animation source code): [MIT License](https://github.com/daimajia/AndroidViewAnimations/blob/master/License)
+>- [TapTargetView](https://github.com/KeepSafe/TapTargetView) (for creating onboarding guides): [Apache License 2.0](https://github.com/KeepSafe/TapTargetView/blob/master/LICENSE)

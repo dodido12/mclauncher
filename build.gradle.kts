@@ -1,6 +1,11 @@
-plugins {
-    id("com.android.application") version "8.12.0" apply false
-    id("org.jetbrains.kotlin.android") version "2.2.10" apply false
-    id("org.jetbrains.kotlin.plugin.serialization") version "2.2.10" apply false
-    id("org.jetbrains.kotlin.plugin.compose") version "2.2.10" apply false
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath("com.github.megatronking.stringfog:gradle-plugin:5.2.0")
+        classpath("com.github.megatronking.stringfog:xor:5.0.0")
+        classpath("com.android.tools.build:gradle:8.2.2")
+    }
 }

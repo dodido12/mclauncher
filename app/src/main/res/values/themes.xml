@@ -1,8 +1,0 @@
-<resources>
-    <style name="Theme.MCLauncher" parent="android:Theme.Material.NoActionBar" />
-    <style name="Theme.MCLauncher.Fullscreen">
-        <item name="android:windowFullscreen">true</item>
-        <item name="android:windowLayoutInDisplayCutoutMode">always</item>
-        <item name="android:windowBackground">@android:color/black</item>
-    </style>
-</resources>
