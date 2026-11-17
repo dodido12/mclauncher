@@ -40,6 +40,17 @@ android {
         }
     }
 
+    // Llave de depuración fija (en el repo): sin ella cada compilación de GitHub Actions firma con
+    // una llave nueva y Android no deja instalar el APK encima del anterior.
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
