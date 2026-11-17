@@ -34,6 +34,11 @@ class TouchControlsEngine(context: Context, private val layoutFile: File) : View
     )
     @Serializable data class Layout(val version: Int = 1, val opacity: Float = 0.55f, val controls: MutableList<Control>)
 
+    init {
+        setWillNotDraw(false)
+        isClickable = true
+    }
+
     private val json = Json { ignoreUnknownKeys = true; prettyPrint = true; encodeDefaults = true }
     var layout: Layout = loadLayout(); private set
     var editMode = false

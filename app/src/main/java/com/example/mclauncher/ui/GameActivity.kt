@@ -85,7 +85,10 @@ class GameActivity : Activity(), SurfaceHolder.Callback, NativeBridge.Callbacks,
         pacer = FramePacer(this, surfaceView, cfg.display)
         NativeBridge.setCallbacks(this)
         getSystemService(InputManager::class.java).registerInputDeviceListener(this, null)
-        touch.visibility = if (gamepads.connectedGamepads().isNotEmpty()) View.GONE else View.VISIBLE
+        // Siempre visibles al inicio: algunos teléfonos (p. ej. Xiaomi) reportan sensores o
+        // botones internos como "joystick". Se ocultan solo cuando de verdad se usa un mando.
+        touch.visibility = View.VISIBLE
+        Log.i("Input", "Mandos detectados: " + gamepads.connectedGamepads().joinToString { "${it.name} (${it.id})" })
     }
 
     private fun hideSystemBars() {
@@ -171,7 +174,7 @@ class GameActivity : Activity(), SurfaceHolder.Callback, NativeBridge.Callbacks,
     }
 
     override fun dispatchGenericMotionEvent(ev: MotionEvent): Boolean {
-        if (gamepads.onGenericMotion(ev)) return true
+        if (gamepads.onGenericMotion(ev)) { touch.visibility = View.GONE; return true }
         // Mouse físico (Bluetooth/USB/DeX) con captura de puntero
         if (ev.isFromSource(android.view.InputDevice.SOURCE_MOUSE) || ev.isFromSource(android.view.InputDevice.SOURCE_MOUSE_RELATIVE)) {
             when (ev.actionMasked) {
@@ -193,12 +196,16 @@ class GameActivity : Activity(), SurfaceHolder.Callback, NativeBridge.Callbacks,
         else -> LwjglBridge.MOUSE_LEFT
     }
 
-    override fun onInputDeviceAdded(deviceId: Int) {
-        if (gamepads.isGamepad(android.view.InputDevice.getDevice(deviceId))) touch.visibility = View.GONE
+    override fun onInputDeviceAdded(deviceId: Int) = Unit
+
+    /** Tocar la pantalla vuelve a mostrar los controles táctiles si un mando los había ocultado. */
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        if (touch.visibility != View.VISIBLE && ev.isFromSource(android.view.InputDevice.SOURCE_TOUCHSCREEN)) touch.visibility = View.VISIBLE
+        return super.dispatchTouchEvent(ev)
     }
     override fun onInputDeviceRemoved(deviceId: Int) {
         gamepads.onDeviceRemoved(deviceId)
-        if (gamepads.connectedGamepads().isEmpty()) touch.visibility = View.VISIBLE
+        touch.visibility = View.VISIBLE
     }
     override fun onInputDeviceChanged(deviceId: Int) = Unit
 

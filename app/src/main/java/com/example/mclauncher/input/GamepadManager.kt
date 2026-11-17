@@ -61,14 +61,34 @@ class GamepadManager {
         KeyEvent.KEYCODE_DPAD_LEFT to Mapping(14, key = LwjglBridge.KEY_F3)              // debug
     )
 
+    /**
+     * En menús e inventarios (cursor libre) los botones hacen otra cosa que en partida:
+     * A = clic, X = clic derecho, Y = shift (mover pila con A), B/START = volver.
+     */
+    private val menuMap = mapOf(
+        KeyEvent.KEYCODE_BUTTON_A to Mapping(0, mouse = LwjglBridge.MOUSE_LEFT),
+        KeyEvent.KEYCODE_BUTTON_B to Mapping(1, key = LwjglBridge.KEY_ESCAPE),
+        KeyEvent.KEYCODE_BUTTON_X to Mapping(2, mouse = LwjglBridge.MOUSE_RIGHT),
+        KeyEvent.KEYCODE_BUTTON_Y to Mapping(3, key = LwjglBridge.KEY_LEFT_SHIFT),
+        KeyEvent.KEYCODE_BUTTON_START to Mapping(7, key = LwjglBridge.KEY_ESCAPE),
+        KeyEvent.KEYCODE_DPAD_UP to Mapping(11, scroll = +1),
+        KeyEvent.KEYCODE_DPAD_DOWN to Mapping(13, scroll = -1)
+    )
+    /** Lo que envió cada botón al pulsarse, para soltar exactamente eso aunque cambie el modo. */
+    private val pressedAs = HashMap<Int, Mapping>()
+
     fun onKeyEvent(e: KeyEvent): Boolean {
         if (!isGamepad(e.device)) return false
-        val m = map[e.keyCode] ?: return false
+        val base = map[e.keyCode] ?: return false
         activeDeviceId = e.deviceId
         if (e.repeatCount > 0) return true
         val down = e.action == KeyEvent.ACTION_DOWN
-        buttons[m.glfwButton] = if (down) 1 else 0
+        buttons[base.glfwButton] = if (down) 1 else 0
         if (emulateKeyboardMouse) {
+            val m = if (down) {
+                val inMenu = !LwjglBridge.isCursorGrabbed()
+                ((if (inMenu) menuMap[e.keyCode] else null) ?: base).also { pressedAs[e.keyCode] = it }
+            } else pressedAs.remove(e.keyCode) ?: base
             val a = if (down) LwjglBridge.PRESS else LwjglBridge.RELEASE
             m.key?.let { LwjglBridge.sendKey(it, 0, a, 0) }
             m.mouse?.let { LwjglBridge.sendMouseButton(it, a, 0) }
@@ -97,7 +117,7 @@ class GamepadManager {
         buttons[14] = if (hx < -0.5f) 1 else 0; buttons[12] = if (hx > 0.5f) 1 else 0
 
         if (emulateKeyboardMouse) {
-            updateMoveKeys()
+            if (LwjglBridge.isCursorGrabbed()) updateMoveKeys() else releaseMoveKeys()
             // Gatillos: RT = atacar/romper (clic izq), LT = usar (clic der)
             val rtNow = rt > 0.5f; val ltNow = lt > 0.5f
             if (rtNow != rtDown) { rtDown = rtNow; LwjglBridge.sendMouseButton(LwjglBridge.MOUSE_LEFT, if (rtNow) 1 else 0, 0) }
@@ -111,10 +131,16 @@ class GamepadManager {
     fun tick(frameDtSec: Float) {
         if (!emulateKeyboardMouse || activeDeviceId < 0) return
         val scale = cameraSpeed * (frameDtSec * 60f)
-        val dx = curve(axes[2]) * scale; val dy = curve(axes[3]) * scale
-        if (dx == 0f && dy == 0f) return
-        if (LwjglBridge.isCursorGrabbed()) LwjglBridge.sendCursorDelta(dx.toDouble(), dy.toDouble())
-        else LwjglBridge.sendCursorDelta(dx * 0.6, dy * 0.6)   // el shim mueve el cursor libre en menús
+        if (LwjglBridge.isCursorGrabbed()) {
+            val dx = curve(axes[2]) * scale; val dy = curve(axes[3]) * scale
+            if (dx != 0f || dy != 0f) LwjglBridge.sendCursorDelta(dx.toDouble(), dy.toDouble())
+        } else {
+            // Menús: cualquiera de los dos sticks mueve el puntero
+            val sx = if (axes[2] != 0f || axes[3] != 0f) axes[2] else axes[0]
+            val sy = if (axes[2] != 0f || axes[3] != 0f) axes[3] else axes[1]
+            val dx = curve(sx) * scale * 0.8f; val dy = curve(sy) * scale * 0.8f
+            if (dx != 0f || dy != 0f) LwjglBridge.sendCursorDelta(dx.toDouble(), dy.toDouble())
+        }
     }
 
     private fun updateMoveKeys() {
@@ -125,6 +151,11 @@ class GamepadManager {
         (heldMoveKeys - want).forEach { LwjglBridge.sendKey(it, 0, LwjglBridge.RELEASE, 0) }
         (want - heldMoveKeys).forEach { LwjglBridge.sendKey(it, 0, LwjglBridge.PRESS, 0) }
         heldMoveKeys.clear(); heldMoveKeys.addAll(want)
+    }
+
+    private fun releaseMoveKeys() {
+        heldMoveKeys.forEach { LwjglBridge.sendKey(it, 0, LwjglBridge.RELEASE, 0) }
+        heldMoveKeys.clear()
     }
 
     private fun pushState() = LwjglBridge.sendGamepadState(0, buttons, axes, activeDeviceId >= 0)

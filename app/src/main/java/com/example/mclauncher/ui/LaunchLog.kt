@@ -96,7 +96,7 @@ object LaunchLog {
     }
 
     private val TAGS = listOf(
-        "MCLauncher", "mcl_", "Zalith", "pojavexec", "GLBridge", "OSMDroid", "exit_hook", "jrelog", "Native", "HotSpot", "Minecraft", "GameActivity", "JreManager", "FramePacer", "HdrDisplayManager",
+        "MCLauncher", "Input", "mcl_", "Zalith", "pojavexec", "GLBridge", "OSMDroid", "exit_hook", "jrelog", "Native", "HotSpot", "Minecraft", "GameActivity", "JreManager", "FramePacer", "HdrDisplayManager",
         "AndroidRuntime", "libc", "DEBUG", "linker", "zink", "MESA", "Mesa", "gl4es", "LIBGL", "vulkan", "System.err"
     )
 
