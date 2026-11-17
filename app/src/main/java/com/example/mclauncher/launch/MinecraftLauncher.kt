@@ -90,7 +90,11 @@ class MinecraftLauncher(
                 instances.update(cfg.id) { it.copy(renderer = RendererType.ZINK_VULKAN) }
                 onProgress("Minecraft ${cfg.minecraftVersion} necesita OpenGL 3.2: usando Zink (Vulkan)", 0.9f)
             }
-            val rt = jre.effective(cfg.javaVersion?.takeIf { it.major >= required } ?: JavaRuntime.forRequiredMajor(required))
+            // Motor Zalith: solo el Java de Android incluido en el APK (25) sirve con JLI_Launch de
+            // libpojavexec; el de Termux depende de librerías que ese cargador no encuentra.
+            // Minecraft 1.17–26.x corre bien sobre Java 25.
+            val rt = if (cfg.engine == GameEngine.ZALITH && required <= 25) JavaRuntime.JAVA_25
+                else jre.effective(cfg.javaVersion?.takeIf { it.major >= required } ?: JavaRuntime.forRequiredMajor(required))
             jre.ensureInstalled(rt) { onProgress(it, 0.95f) }
             val javaHome = jre.homeOf(rt)
             val libjvm = jre.libjvmOf(rt)!!

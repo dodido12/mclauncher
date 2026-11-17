@@ -13,7 +13,7 @@
 | LWJGL 3 | BSD-3-Clause | https://github.com/LWJGL/lwjgl3 |
 | JNA `libjnidispatch.so` (compilado para Android, tomado de ZalithLauncher) | Apache-2.0 o LGPL-2.1 | https://github.com/java-native-access/jna |
 | libffi | MIT | https://github.com/libffi/libffi |
-| OpenAL Soft | LGPL-2.1-or-later | https://github.com/kcat/openal-soft |
+| OpenAL Soft 1.24.3 (`libopenal.so`, compilación de ZalithLauncher) | LGPL-2.1-or-later | https://github.com/kcat/openal-soft |
 | FreeType | FTL o GPLv2 | https://gitlab.freedesktop.org/freetype/freetype |
 | GLFW (solo headers) | zlib | https://github.com/glfw/glfw |
 | OpenJDK 25.0.3 para Android (incluido en `assets/runtimes/jre-25`, tomado de ZalithLauncher; compilación de PojavLauncherTeam) | GPLv2 + Classpath Exception (textos en `legal/` dentro del runtime) | https://github.com/PojavLauncherTeam/android-openjdk-build-multiarch · https://github.com/ZalithLauncher/ZalithLauncher · código de OpenJDK: https://github.com/openjdk/jdk25u |
