@@ -249,6 +249,15 @@ class MinecraftLauncher(
             "-Dorg.lwjgl.glfw.libname=$nativeDir/libglfw.so",          // shim GLFW (cpp/glfw)
             "-Dorg.lwjgl.openal.libname=$nativeDir/libopenal.so",       // OpenAL Soft (AAudio/OpenSL)
             "-Dorg.lwjgl.freetype.libname=$nativeDir/libfreetype.so",
+            // Android no tiene /etc/localtime ni un idioma de sistema visible para Java
+            "-Duser.timezone=${java.util.TimeZone.getDefault().id}",
+            "-Duser.language=${java.util.Locale.getDefault().language}",
+            "-Dos.version=Android-${android.os.Build.VERSION.RELEASE}",
+            // Algunos SoC reportan menos núcleos a la JVM (cgroups de Android)
+            "-XX:ActiveProcessorCount=${Runtime.getRuntime().availableProcessors()}",
+            // POSIX_SPAWN ejecuta jspawnhelper desde files/, bloqueado por W^X en targetSdk 29+
+            "-Djdk.lang.Process.launchMechanism=FORK",
+            "-Dorg.lwjgl.vulkan.libname=libvulkan.so",
             "-Dfml.earlyprogresswindow=false",          // Forge/NeoForge: ventana de carga temprana no soportada
             "-Dsodium.checks.issue2561=false"
         )
