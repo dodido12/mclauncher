@@ -15,7 +15,10 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 17
+          # jre_lwjgl3glfw compila con toolchain Java 8; Gradle corre con 17
+          java-version: |
+            8
+            17
 
       # El runner ya trae el Android SDK en $ANDROID_HOME; faltan los paquetes que usa ZalithLauncher.
       - name: Instalar SDK 34, build-tools 34 y NDK r25c
