@@ -2,6 +2,11 @@
 
 | Componente | Licencia | Fuente |
 |---|---|---|
+| **Motor Zalith**: `zalith/src/main/jni` (libpojavexec, exithook, driver_helper, linkerhook, awt), clases `org.lwjgl.glfw.CallbackBridge`, `net.kdt.pojavlaunch.*`, `com.oracle.dalvik.VMLauncher` (reescritas con las mismas firmas) | GPLv3 | https://github.com/ZalithLauncher/ZalithLauncher (basado en PojavLauncher) |
+| `lwjgl-glfw-classes.jar` (LWJGL 3.3.6 + GLFW en Java de Pojav) y natives `liblwjgl*.so` 3.3.6 para Android (`zalith/src/main/assets/zalith`) | BSD-3-Clause (LWJGL) / GPLv3 (partes de Pojav) | https://github.com/ZalithLauncher/ZalithLauncher · https://github.com/PojavLauncherTeam/lwjgl3 |
+| `MioLibPatcher.jar` (agente Java; incluye Javassist) | GPLv3 / Javassist MPL-1.1, LGPL-2.1 o Apache-2.0 | https://github.com/ZalithLauncher/ZalithLauncher |
+| `libOSMesa_8.so` (Mesa 23.0.4 OSMesa + Zink) | MIT | https://gitlab.freedesktop.org/mesa/mesa |
+| ByteHook | MIT | https://github.com/bytedance/bhook |
 | Mesa 3D (Zink) | MIT | https://gitlab.freedesktop.org/mesa/mesa |
 | libdrm (estática, dentro de Mesa) | MIT | https://gitlab.freedesktop.org/mesa/drm |
 | gl4es | MIT | https://github.com/ptitSeb/gl4es |

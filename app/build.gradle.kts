@@ -50,7 +50,10 @@ android {
     // Las .so deben existir en disco (nativeLibraryDir) para que Mesa/LWJGL/HotSpot
     // puedan resolverlas por ruta con dlopen().
     packaging {
-        jniLibs { useLegacyPackaging = true }
+        jniLibs {
+            useLegacyPackaging = true
+            pickFirsts += listOf("**/libbytehook.so", "**/libc++_shared.so")
+        }
         resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" }
     }
 
@@ -69,6 +72,7 @@ kotlin {
 }
 
 dependencies {
+    implementation(project(":zalith"))
     // Kotlin
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")

@@ -51,6 +51,18 @@
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density"
             android:theme="@style/Theme.MCLauncher.Fullscreen" />
 
+        <!-- Motor Zalith/Pojav (libpojavexec): mismo proceso :game, una JVM por proceso -->
+        <activity
+            android:name=".ui.ZalithGameActivity"
+            android:process=":game"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape"
+            android:colorMode="hdr"
+            android:resizeableActivity="false"
+            android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density"
+            android:theme="@style/Theme.MCLauncher.Fullscreen" />
+
         <!-- Instalador oficial de Forge/NeoForge, en su propio proceso HotSpot -->
         <activity
             android:name=".ui.InstallerActivity"

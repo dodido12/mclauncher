@@ -12,10 +12,12 @@ object LaunchLog {
     const val LOG_FILE = "last_launch.log"
     /** Pasos y errores de la preparación (lado launcher, antes de abrir el juego). */
     const val PREPARE_FILE = "last_prepare.log"
+    /** stdout/stderr de la JVM con el motor Zalith (Logger.begin de libpojavexec). */
+    const val ZALITH_LOG = "zalith_jvm.log"
     private const val TAG = "MCLauncher"
 
     fun clear(instanceDir: File) {
-        listOf(EXIT_FILE, LOG_FILE, PREPARE_FILE).forEach { File(instanceDir, it).delete() }
+        listOf(EXIT_FILE, LOG_FILE, PREPARE_FILE, ZALITH_LOG).forEach { File(instanceDir, it).delete() }
     }
 
     fun stage(instanceDir: File, msg: String) {
@@ -75,6 +77,12 @@ object LaunchLog {
         appendLine(if (saved != null) "== logcat (guardado al cerrar el juego) ==" else "== logcat (actual) ==")
         appendLine(filterRelevant(logcat))
 
+        File(instanceDir, ZALITH_LOG).takeIf { it.exists() && it.length() > 0 }?.let { f ->
+            appendLine()
+            appendLine("== Salida de la JVM (motor Zalith, final) ==")
+            appendLine(f.readLines().takeLast(250).joinToString("\n"))
+        }
+
         File(gameDir, "logs/latest.log").takeIf { it.exists() }?.let { f ->
             appendLine()
             appendLine("== .minecraft/logs/latest.log (final) ==")
@@ -88,7 +96,7 @@ object LaunchLog {
     }
 
     private val TAGS = listOf(
-        "MCLauncher", "mcl_", "HotSpot", "Minecraft", "GameActivity", "JreManager", "FramePacer", "HdrDisplayManager",
+        "MCLauncher", "mcl_", "Zalith", "pojavexec", "GLBridge", "OSMDroid", "exit_hook", "jrelog", "Native", "HotSpot", "Minecraft", "GameActivity", "JreManager", "FramePacer", "HdrDisplayManager",
         "AndroidRuntime", "libc", "DEBUG", "linker", "zink", "MESA", "Mesa", "gl4es", "LIBGL", "vulkan", "System.err"
     )
 

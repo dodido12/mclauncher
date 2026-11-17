@@ -14,6 +14,8 @@ import com.example.mclauncher.net.downloadVerified
 import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsText
 import com.example.mclauncher.ui.GameActivity
+import com.example.mclauncher.ui.ZalithGameActivity
+import com.example.mclauncher.instance.GameEngine
 import io.ktor.client.HttpClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -94,8 +96,19 @@ class MinecraftLauncher(
             val libjvm = jre.libjvmOf(rt)!!
 
             val gameDir = instances.gameDir(cfg.id)
-            ensureLwjgl(version) { onProgress(it, 0.97f) }
-            val classpath = buildClasspath(version, vanillaId)
+            val zalith = cfg.engine == GameEngine.ZALITH
+            val zalithNatives = if (zalith) {
+                onProgress("Preparando el motor Zalith…", 0.97f)
+                ZalithRuntime.ensureExtracted(context)
+                ZalithRuntime.nativesDir(context).absolutePath
+            } else null
+            if (!zalith) ensureLwjgl(version) { onProgress(it, 0.97f) }
+            // Motor Zalith: su lwjgl-glfw-classes.jar (LWJGL 3.3.6 + GLFW en Java) reemplaza a
+            // todos los org.lwjgl:* y va primero en el classpath.
+            val classpath = if (zalith)
+                (listOf(ZalithRuntime.lwjglJar(context).absolutePath) + buildClasspath(version, vanillaId, withLwjgl = false).split(':'))
+                    .filter { it.isNotEmpty() }.joinToString(":")
+            else buildClasspath(version, vanillaId)
             val vars = mapOf(
                 "auth_player_name" to session.username,
                 "auth_uuid" to session.uuid.replace("-", ""),
@@ -111,7 +124,7 @@ class MinecraftLauncher(
                 "assets_root" to mojang.assetsDir.absolutePath,
                 "game_assets" to File(mojang.assetsDir, "virtual/legacy").absolutePath,
                 "assets_index_name" to (vanillaJson["assetIndex"]?.jsonObject?.str("id") ?: "legacy"),
-                "natives_directory" to nativeDir,
+                "natives_directory" to (zalithNatives ?: nativeDir),
                 "launcher_name" to "MCLauncher",
                 "launcher_version" to "0.1.0",
                 "classpath" to classpath,
@@ -123,7 +136,7 @@ class MinecraftLauncher(
 
             val jvmArgs = buildList {
                 addAll(jre.jvmFlags(rt, cfg))
-                addAll(androidJvmProps(cfg, javaHome))
+                addAll(if (zalith) zalithJvmProps(cfg, javaHome) else androidJvmProps(cfg, javaHome))
                 // log4j2 config oficial (también mitiga Log4Shell en versiones antiguas)
                 vanillaJson["logging"]?.jsonObject?.get("client")?.jsonObject?.let { lc ->
                     val f = File(mojang.assetsDir, "log_configs/${lc["file"]!!.jsonObject.str("id")}")
@@ -142,24 +155,31 @@ class MinecraftLauncher(
                 // de JNA es para glibc y no carga. Lo usa OSHI para leer CPU/memoria.
                 add("-Djna.boot.library.path=$nativeDir")
                 add("-Djna.nounpack=true")
+                // Zalith: LWJGL 3.3.6 de Android en files/zalith/natives; libpojavexec (que el GLFW
+                // en Java carga con System.loadLibrary) y Mesa en nativeLibraryDir.
+                if (zalith) add("-Djava.library.path=$zalithNatives:$nativeDir")
             }.let(::dedupeJvmArgs)
 
             val gameArgs = argList(version, "game", vars).ifEmpty {
                 version.str("minecraftArguments")!!.split(' ').map { substitute(it, vars) }
             }
 
+            val hdrOn = cfg.hdr.enabled && cfg.renderer == RendererType.ZINK_VULKAN_HDR
             val spec = LaunchSpec(
                 instanceId = cfg.id,
                 javaHome = javaHome.absolutePath,
                 libjvm = libjvm.absolutePath,
-                preloadLibs = jre.depLibsOf(rt).map { it.absolutePath } + libjvm.absolutePath + jrePreloads(javaHome),
-                env = rendererEnv(cfg, javaHome),
+                preloadLibs = if (zalith) zalithPreloads(cfg, javaHome)
+                    else jre.depLibsOf(rt).map { it.absolutePath } + libjvm.absolutePath + jrePreloads(javaHome),
+                env = if (zalith) zalithEnv(cfg, javaHome, hdrOn) else rendererEnv(cfg, javaHome),
                 jvmArgs = jvmArgs,
                 mainClass = version.str("mainClass")!!,
                 gameArgs = gameArgs,
                 gameDir = gameDir.absolutePath,
                 renderer = cfg.renderer.ordinal,
-                hdrEnabled = cfg.hdr.enabled && cfg.renderer == RendererType.ZINK_VULKAN_HDR
+                hdrEnabled = hdrOn,
+                engine = if (zalith) "zalith" else "mclauncher",
+                ldLibraryPath = if (zalith) zalithLdLibraryPath(javaHome) else ""
             )
             File(instances.instanceDir(cfg.id), "launch_spec.json").writeText(json.encodeToString(LaunchSpec.serializer(), spec))
             onProgress("Listo", 1f)
@@ -168,7 +188,9 @@ class MinecraftLauncher(
 
     fun start(cfg: InstanceConfig) {
         instances.markPlayed(cfg.id)
-        context.startActivity(Intent(context, GameActivity::class.java)
+        val engine = instances.load(cfg.id).engine
+        val activity = if (engine == GameEngine.ZALITH) ZalithGameActivity::class.java else GameActivity::class.java
+        context.startActivity(Intent(context, activity)
             .putExtra(GameActivity.EXTRA_INSTANCE, cfg.id)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
@@ -199,7 +221,7 @@ class MinecraftLauncher(
         }
     }
 
-    private fun buildClasspath(version: JsonObject, vanillaId: String): String {
+    private fun buildClasspath(version: JsonObject, vanillaId: String, withLwjgl: Boolean = true): String {
         val seen = LinkedHashMap<String, File>()
         for (lib in version["libraries"]?.jsonArray.orEmpty().map { it.jsonObject }) {
             if (!mojang.rulesAllow(lib["rules"])) continue
@@ -208,7 +230,7 @@ class MinecraftLauncher(
             val parts = name.split(':')
             if (parts.getOrNull(3)?.startsWith("natives-") == true) continue   // natives de escritorio: no sirven
             val key = parts[0] + ":" + parts[1] + (parts.getOrNull(3)?.let { ":$it" } ?: "")
-            if (parts[0] == "org.lwjgl") { seen.putIfAbsent(key, lwjglJar(parts[1])); continue }
+            if (parts[0] == "org.lwjgl") { if (withLwjgl) seen.putIfAbsent(key, lwjglJar(parts[1])); continue }
             val path = lib["downloads"]?.jsonObject?.get("artifact")?.jsonObject?.str("path") ?: MojangDownloader.mavenPath(name)
             seen.putIfAbsent(key, File(mojang.librariesDir, path))
         }
@@ -317,6 +339,103 @@ class MinecraftLauncher(
                 "MCL_HDR" to if (cfg.renderer == RendererType.ZINK_VULKAN_HDR && cfg.hdr.enabled) "1" else "0"
             )
         }
+    }
+
+    // ---------------- motor Zalith (libpojavexec) ----------------
+    private fun zalithRendererLib(cfg: InstanceConfig) =
+        if (cfg.renderer == RendererType.GL4ES) "$nativeDir/libgl4es_114.so" else "$nativeDir/libOSMesa_8.so"
+
+    /** Tamaño de pantalla en horizontal para glfwstub (el juego recibe el real al crear la superficie). */
+    private fun landscapeScreen(): Pair<Int, Int> {
+        val (w, h) = if (android.os.Build.VERSION.SDK_INT >= 30) {
+            val b = context.getSystemService(android.view.WindowManager::class.java).maximumWindowMetrics.bounds
+            b.width() to b.height()
+        } else context.resources.displayMetrics.let { it.widthPixels to it.heightPixels }
+        return maxOf(w, h) to minOf(w, h)
+    }
+
+    private fun zalithJvmProps(cfg: InstanceConfig, javaHome: File): List<String> {
+        val tmp = File(context.cacheDir, "jvmtmp").apply { mkdirs() }
+        val gameDir = instances.gameDir(cfg.id).absolutePath
+        val (sw, sh) = landscapeScreen()
+        return listOf(
+            "-javaagent:${ZalithRuntime.patcherJar(context).absolutePath}",   // OSHI, narrador, Sodium… (MioLibPatcher)
+            "-Djava.home=${javaHome.absolutePath}",
+            "-Djava.io.tmpdir=${tmp.absolutePath}",
+            "-Duser.home=$gameDir",
+            "-Duser.timezone=${java.util.TimeZone.getDefault().id}",
+            "-Duser.language=${java.util.Locale.getDefault().language}",
+            "-Dos.version=Android-${android.os.Build.VERSION.RELEASE}",
+            "-Dpojav.path.minecraft=$gameDir",
+            "-Dorg.lwjgl.opengl.libname=${zalithRendererLib(cfg)}",
+            "-Dorg.lwjgl.freetype.libname=$nativeDir/libfreetype.so",
+            "-Dorg.lwjgl.openal.libname=$nativeDir/libopenal.so",
+            "-Dorg.lwjgl.vulkan.libname=libvulkan.so",
+            "-Dorg.lwjgl.system.allocator=system",
+            "-Dglfwstub.windowWidth=$sw",
+            "-Dglfwstub.windowHeight=$sh",
+            "-Dglfwstub.initEgl=false",
+            "-Dnet.minecraft.clientmodname=MCLauncher",
+            "-Dfml.earlyprogresswindow=false",
+            "-Dloader.disable_forked_guis=true",
+            "-Djdk.lang.Process.launchMechanism=FORK",
+            "-Dsodium.checks.issue2561=false",
+            "-XX:ActiveProcessorCount=${Runtime.getRuntime().availableProcessors()}"
+        )
+    }
+
+    private fun zalithLdLibraryPath(javaHome: File): String = listOf(
+        "${javaHome.absolutePath}/lib/server", "${javaHome.absolutePath}/lib/jli", "${javaHome.absolutePath}/lib",
+        "/system/lib64", "/vendor/lib64", "/vendor/lib64/hw",
+        ZalithRuntime.nativesDir(context).absolutePath, nativeDir
+    ).joinToString(":")
+
+    /** Igual que JREUtils.initJavaRuntime + initGraphicAndSoundEngine de ZalithLauncher. */
+    private fun zalithPreloads(cfg: InstanceConfig, javaHome: File): List<String> {
+        val lib = File(javaHome, "lib")
+        val first = listOf("jli/libjli.so", "libjli.so", "server/libjvm.so", "libverify.so", "libjava.so", "libnet.so",
+            "libnio.so", "libawt.so", "libawt_headless.so", "libfontmanager.so")
+            .map { File(lib, it) }.filter { it.isFile }
+        val rest = lib.walkTopDown().filter { it.isFile && it.name.endsWith(".so") && it !in first }.toList()
+        return (first + rest).map { it.absolutePath } + "$nativeDir/libopenal.so" + zalithRendererLib(cfg)
+    }
+
+    private fun zalithEnv(cfg: InstanceConfig, javaHome: File, hdr: Boolean): Map<String, String> {
+        val (sw, sh) = landscapeScreen()
+        val cache = File(context.cacheDir, "jvmtmp").apply { mkdirs() }.absolutePath
+        val gl4es = cfg.renderer == RendererType.GL4ES
+        val base = mutableMapOf(
+            "POJAV_NATIVEDIR" to nativeDir,
+            "DRIVER_PATH" to nativeDir,
+            "JAVA_HOME" to javaHome.absolutePath,
+            "HOME" to instances.gameDir(cfg.id).absolutePath,
+            "TMPDIR" to cache,
+            "LD_LIBRARY_PATH" to zalithLdLibraryPath(javaHome),
+            "PATH" to "${javaHome.absolutePath}/bin:${System.getenv("PATH") ?: "/system/bin"}",
+            "FORCE_VSYNC" to "false",
+            "AWTSTUB_WIDTH" to sw.toString(),
+            "AWTSTUB_HEIGHT" to sh.toString(),
+            "MOD_ANDROID_RUNTIME" to "",
+            // Driver Vulkan del sistema (Adreno/Mali). Turnip necesita librerías privadas del sistema.
+            "POJAV_ZINK_PREFER_SYSTEM_DRIVER" to "1",
+            "POJAV_RENDERER" to if (gl4es) "opengles2" else "vulkan_zink",
+            "MCL_HDR" to if (hdr && !gl4es) "1" else "0",
+            "MCL_HDR_HEADROOM" to (cfg.hdr.maxLuminanceNits / cfg.hdr.paperWhiteNits).coerceIn(1f, 8f).toString()
+        )
+        if (gl4es) base += mapOf("LIBGL_ES" to "2", "LIBGL_MIPMAP" to "3", "LIBGL_NOERROR" to "1",
+            "LIBGL_NOINTOVLHACK" to "1", "LIBGL_NORMALIZE" to "1")
+        else base += mapOf(
+            "LIBGL_ES" to "3",
+            "MESA_GL_VERSION_OVERRIDE" to "4.6",
+            "MESA_GLSL_VERSION_OVERRIDE" to "460",
+            "MESA_LOADER_DRIVER_OVERRIDE" to "zink",
+            "MESA_GLSL_CACHE_DIR" to cache,
+            "force_glsl_extensions_warn" to "true",
+            "allow_higher_compat_version" to "true",
+            "allow_glsl_extension_directive_midshader" to "true",
+            "LIB_MESA_NAME" to zalithRendererLib(cfg)
+        )
+        return base
     }
 
     /** Las libs del loader se bajan por URL Maven; sin assets ni client propio. */

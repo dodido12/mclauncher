@@ -1,5 +1,16 @@
 # MC Launcher (Android · Kotlin + C++/NDK)
 
+**Licencia: GPLv3** (ver `LICENSE`). El motor de juego "Zalith" incluye código de
+[ZalithLauncher](https://github.com/ZalithLauncher/ZalithLauncher) / PojavLauncher, que es GPLv3;
+por eso todo el launcher se distribuye bajo GPLv3 y su código fuente debe publicarse junto al APK.
+
+## Motores de juego (por instancia, botón "Motor")
+
+| Motor | Qué usa | HDR |
+|---|---|---|
+| **Zalith** (por defecto) | `libpojavexec` de ZalithLauncher, su GLFW en Java (LWJGL 3.3.6), Mesa 23 OSMesa + Zink, `VMLauncher`/JLI | Sí: `ctxbridges/hdr_output.c` convierte cada cuadro a scRGB FP16 con expansión de altas luces |
+| **Propio** | Shim GLFW en C (`app/src/main/cpp`), LWJGL 3.4.1, Mesa 25 EGL + Zink, presentador Vulkan | Sí: swapchain HDR10 PQ |
+
 Launcher multi-instancia de Minecraft: Java Edition para Android arm64, con OpenJDK 8/17/21/25,
 renderizadores GL4ES y Zink/Vulkan con salida HDR10, controles táctiles, mandos, cuentas
 Microsoft u offline y mods desde Modrinth.

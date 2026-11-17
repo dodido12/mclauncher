@@ -151,22 +151,22 @@ JNIEXPORT jint JNICALL NB(launchJvm)(JNIEnv* env, jclass, jstring javaHome, jstr
 }
 
 // ---------------- LwjglBridge ----------------
-JNIEXPORT void JNICALL LB(sendKey)(JNIEnv*, jclass, jint k, jint sc, jint a, jint m) { mcl::input::key(k, sc, a, m); }
-JNIEXPORT void JNICALL LB(sendChar)(JNIEnv*, jclass, jint cp, jint m) { mcl::input::character(cp, m); }
-JNIEXPORT void JNICALL LB(sendMouseButton)(JNIEnv*, jclass, jint b, jint a, jint m) { mcl::input::mouseButton(b, a, m); }
-JNIEXPORT void JNICALL LB(sendCursorPos)(JNIEnv*, jclass, jdouble x, jdouble y) { mcl::input::cursorPos(x, y); }
-JNIEXPORT void JNICALL LB(sendCursorDelta)(JNIEnv*, jclass, jdouble dx, jdouble dy) { mcl::input::cursorDelta(dx, dy); }
-JNIEXPORT void JNICALL LB(sendScroll)(JNIEnv*, jclass, jdouble dx, jdouble dy) { mcl::input::scroll(dx, dy); }
-JNIEXPORT jboolean JNICALL LB(isCursorGrabbed)(JNIEnv*, jclass) { return mcl::state().cursorGrabbed.load(); }
+JNIEXPORT void JNICALL LB(nSendKey)(JNIEnv*, jclass, jint k, jint sc, jint a, jint m) { mcl::input::key(k, sc, a, m); }
+JNIEXPORT void JNICALL LB(nSendChar)(JNIEnv*, jclass, jint cp, jint m) { mcl::input::character(cp, m); }
+JNIEXPORT void JNICALL LB(nSendMouseButton)(JNIEnv*, jclass, jint b, jint a, jint m) { mcl::input::mouseButton(b, a, m); }
+JNIEXPORT void JNICALL LB(nSendCursorPos)(JNIEnv*, jclass, jdouble x, jdouble y) { mcl::input::cursorPos(x, y); }
+JNIEXPORT void JNICALL LB(nSendCursorDelta)(JNIEnv*, jclass, jdouble dx, jdouble dy) { mcl::input::cursorDelta(dx, dy); }
+JNIEXPORT void JNICALL LB(nSendScroll)(JNIEnv*, jclass, jdouble dx, jdouble dy) { mcl::input::scroll(dx, dy); }
+JNIEXPORT jboolean JNICALL LB(nIsCursorGrabbed)(JNIEnv*, jclass) { return mcl::state().cursorGrabbed.load(); }
 
-JNIEXPORT void JNICALL LB(sendGamepadState)(JNIEnv* env, jclass, jint jid, jbyteArray b, jfloatArray a, jboolean c) {
+JNIEXPORT void JNICALL LB(nSendGamepadState)(JNIEnv* env, jclass, jint jid, jbyteArray b, jfloatArray a, jboolean c) {
     unsigned char buttons[15]{}; float axes[6]{};
     env->GetByteArrayRegion(b, 0, 15, reinterpret_cast<jbyte*>(buttons));
     env->GetFloatArrayRegion(a, 0, 6, axes);
     mcl::input::gamepad(jid, buttons, axes, c);
 }
 
-JNIEXPORT jintArray JNICALL LB(windowSize)(JNIEnv* env, jclass) {
+JNIEXPORT jintArray JNICALL LB(nWindowSize)(JNIEnv* env, jclass) {
     jint v[2] = {mcl::state().width, mcl::state().height};
     jintArray r = env->NewIntArray(2);
     env->SetIntArrayRegion(r, 0, 2, v);

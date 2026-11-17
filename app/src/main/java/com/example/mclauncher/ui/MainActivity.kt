@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import com.example.mclauncher.LauncherApp
 import com.example.mclauncher.auth.Account
 import com.example.mclauncher.auth.MicrosoftAuth
+import com.example.mclauncher.instance.GameEngine
 import com.example.mclauncher.instance.InstanceConfig
 import com.example.mclauncher.instance.LoaderType
 import com.example.mclauncher.instance.RendererType
@@ -151,14 +152,10 @@ private fun LauncherScreen(app: LauncherApp, launcher: MinecraftLauncher) {
                 items(instances, key = { it.id }) { inst ->
                     Card { Column(Modifier.padding(12.dp)) {
                         Text(inst.name, style = MaterialTheme.typography.titleSmall)
-                        Text("${inst.minecraftVersion} · ${inst.loader.name.lowercase()} · ${inst.renderer} · ${inst.ramMb} MB" + if (inst.hdr.enabled) " · HDR" else "",
+                        Text("${inst.minecraftVersion} · ${inst.loader.name.lowercase()} · ${inst.renderer} · ${inst.ramMb} MB" +
+                            (if (inst.hdr.enabled) " · HDR" else "") + " · motor " + engineLabel(inst.engine),
                             style = MaterialTheme.typography.bodySmall)
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        TextButton({ modrinthFor = inst }) { Text("Mods") }
-                        TextButton({ logFor = inst }) { Text("Registro") }
-                        TextButton({ deleteFor = inst }, enabled = !busy,
-                            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Borrar") }
-                        Spacer(Modifier.weight(1f))
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
                         Button(enabled = selectedAccount != null && !busy, onClick = {
                             scope.launch {
                                 busy = true
@@ -185,6 +182,19 @@ private fun LauncherScreen(app: LauncherApp, launcher: MinecraftLauncher) {
                                 busy = false
                             }
                         }) { Text("Jugar") }
+                        Spacer(Modifier.width(4.dp))
+                        TextButton({ modrinthFor = inst }) { Text("Mods") }
+                        TextButton({ logFor = inst }) { Text("Registro") }
+                        TextButton({
+                            scope.launch {
+                                val next = if (inst.engine == GameEngine.ZALITH) GameEngine.MCLAUNCHER else GameEngine.ZALITH
+                                app.instances.update(inst.id) { it.copy(engine = next) }
+                                instances = app.instances.list()
+                                status = "${inst.name}: motor ${engineLabel(next)}"
+                            }
+                        }, enabled = !busy) { Text("Motor") }
+                        TextButton({ deleteFor = inst }, enabled = !busy,
+                            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text("Borrar") }
                     } } }
                 }
             }
@@ -201,9 +211,10 @@ private fun LauncherScreen(app: LauncherApp, launcher: MinecraftLauncher) {
     if (showCreate) CreateInstanceDialog(
         recommendedRam = app.instances.recommendedRamMb(), maxRam = app.instances.maxRamMb(),
         onDismiss = { showCreate = false }
-    ) { name, ver, loader, renderer, hdr, ram ->
+    ) { name, ver, loader, renderer, hdr, ram, engine ->
         scope.launch {
             val c = app.instances.create(name, ver, loader, renderer = renderer, ramMb = ram)
+            app.instances.update(c.id) { it.copy(engine = engine) }
             if (hdr) app.instances.update(c.id) { it.copy(hdr = it.hdr.copy(enabled = true)) }
             instances = app.instances.list(); showCreate = false
         }
@@ -273,8 +284,9 @@ private fun SettingsDialog(current: String, onDismiss: () -> Unit, onSave: (Stri
 @Composable
 private fun CreateInstanceDialog(
     recommendedRam: Int, maxRam: Int, onDismiss: () -> Unit,
-    onCreate: (String, String, LoaderType, RendererType, Boolean, Int) -> Unit
+    onCreate: (String, String, LoaderType, RendererType, Boolean, Int, GameEngine) -> Unit
 ) {
+    var engine by remember { mutableStateOf(GameEngine.ZALITH) }
     val minRam = 1024
     val topRam = maxRam.coerceAtLeast(minRam + 512)
     var ram by remember { mutableFloatStateOf(recommendedRam.coerceIn(minRam, topRam).toFloat()) }
@@ -288,6 +300,9 @@ private fun CreateInstanceDialog(
             OutlinedTextField(version, { version = it }, label = { Text("Versión de Minecraft") })
             Text("Loader"); Row { LoaderType.entries.forEach { l -> FilterChip(loader == l, { loader = l }, { Text(l.name.lowercase()) }) } }
             Text("Renderizador"); Row { RendererType.entries.forEach { r -> FilterChip(renderer == r, { renderer = r }, { Text(r.name) }) } }
+            Text("Motor del juego"); Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                GameEngine.entries.forEach { e -> FilterChip(engine == e, { engine = e }, { Text(engineLabel(e)) }) }
+            }
             val ramMb = (ram / 256f).roundToInt() * 256
             Text("RAM: $ramMb MB (${"%.1f".format(ramMb / 1024f)} GB)")
             Slider(value = ram, onValueChange = { ram = it }, valueRange = minRam.toFloat()..topRam.toFloat())
@@ -295,7 +310,7 @@ private fun CreateInstanceDialog(
                 "Más RAM no siempre es mejor: deja memoria para Android y la GPU.", style = MaterialTheme.typography.bodySmall)
         } },
         confirmButton = { Button({
-            onCreate(name, version, loader, renderer, renderer == RendererType.ZINK_VULKAN_HDR, (ram / 256f).roundToInt() * 256)
+            onCreate(name, version, loader, renderer, renderer == RendererType.ZINK_VULKAN_HDR, (ram / 256f).roundToInt() * 256, engine)
         }) { Text("Crear") } },
         dismissButton = { TextButton(onDismiss) { Text("Cancelar") } })
 }
@@ -326,4 +341,9 @@ private fun ModrinthDialog(app: LauncherApp, inst: InstanceConfig, onDismiss: ()
             if (msg.isNotEmpty()) Text(msg, style = MaterialTheme.typography.bodySmall)
         } },
         confirmButton = { TextButton(onDismiss) { Text("Cerrar") } })
+}
+
+private fun engineLabel(e: GameEngine) = when (e) {
+    GameEngine.ZALITH -> "Zalith"
+    GameEngine.MCLAUNCHER -> "Propio"
 }

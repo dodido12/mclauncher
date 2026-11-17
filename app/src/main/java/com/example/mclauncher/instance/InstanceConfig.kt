@@ -37,6 +37,14 @@ enum class RendererType {
 }
 
 @Serializable
+enum class GameEngine {
+    /** libpojavexec de ZalithLauncher/PojavLauncher (GLFW en Java, OSMesa/Zink) + HDR del launcher. */
+    @SerialName("zalith") ZALITH,
+    /** Motor propio: shim GLFW en C, Mesa EGL/Zink y presentador Vulkan. */
+    @SerialName("mclauncher") MCLAUNCHER
+}
+
+@Serializable
 enum class HdrMode {
     /** El juego renderiza SDR; el presentador hace expansión inversa (SDR→HDR) controlada. */
     @SerialName("inverse_tonemap") INVERSE_TONEMAP,
@@ -74,6 +82,7 @@ data class InstanceConfig(
     val javaVersion: JavaRuntime? = null,
     val ramMb: Int = 2048,
     val renderer: RendererType = RendererType.GL4ES,
+    val engine: GameEngine = GameEngine.ZALITH,
     val hdr: HdrSettings = HdrSettings(),
     val display: DisplaySettings = DisplaySettings(),
     val extraJvmArgs: List<String> = emptyList(),

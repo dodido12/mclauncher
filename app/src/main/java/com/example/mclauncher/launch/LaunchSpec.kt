@@ -15,5 +15,9 @@ data class LaunchSpec(
     val gameArgs: List<String>,
     val gameDir: String,
     val renderer: Int,
-    val hdrEnabled: Boolean
+    val hdrEnabled: Boolean,
+    /** "mclauncher" (libmcl_native) o "zalith" (libpojavexec + VMLauncher). */
+    val engine: String = "mclauncher",
+    /** Solo motor zalith: LD_LIBRARY_PATH del linker para libjli/libjvm/natives. */
+    val ldLibraryPath: String = ""
 )

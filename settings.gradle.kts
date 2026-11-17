@@ -7,3 +7,4 @@ dependencyResolutionManagement {
 }
 rootProject.name = "MCLauncher"
 include(":app")
+include(":zalith")
