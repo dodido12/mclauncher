@@ -128,7 +128,11 @@ class ZalithGameActivity : Activity(), SurfaceHolder.Callback, InputManager.Inpu
     private fun startJvm() {
         Thread(null, {
             val code = try {
-                Logger.begin(File(instanceDir, LaunchLog.ZALITH_LOG).absolutePath)   // stdout/stderr de la JVM
+                // stdout/stderr de la JVM a archivo (el registro no debe impedir que el juego abra)
+                runCatching {
+                    val logFile = File(instanceDir, LaunchLog.ZALITH_LOG).apply { parentFile?.mkdirs(); createNewFile() }
+                    Logger.begin(logFile.absolutePath)
+                }.onFailure { Log.w(TAG, "No se pudo abrir el registro de la JVM: $it") }
                 for ((k, v) in spec.env) Os.setenv(k, v, true)
                 JREUtils.setLdLibraryPath(spec.ldLibraryPath)
                 for (lib in spec.preloadLibs) if (!JREUtils.dlopen(lib)) Log.w(TAG, "dlopen falló: $lib")

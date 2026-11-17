@@ -94,7 +94,7 @@ Java_net_kdt_pojavlaunch_Logger_begin(JNIEnv *env, __attribute((unused)) jclass 
 
     /* open latestlog.txt for writing */
     const char* logFilePath = (*env)->GetStringUTFChars(env, logPath, NULL);
-    latestlog_fd = open(logFilePath, O_WRONLY | O_TRUNC);
+    latestlog_fd = open(logFilePath, O_WRONLY | O_TRUNC | O_CREAT, 0644);   // MCLauncher: crear si no existe
 
     if (latestlog_fd == -1)
     {
