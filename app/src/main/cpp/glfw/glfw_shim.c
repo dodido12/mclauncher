@@ -372,6 +372,22 @@ SHIM_EXPORT int glfwGetGamepadState(int jid, GLFWgamepadstate* st) {
     return GLFW_TRUE;
 }
 
+/* ---------------- IME / preedit (GLFW 3.5, opcionales en LWJGL 3.4) ----------------
+ * Android maneja el IME con su propio teclado; se exportan para que LWJGL/Minecraft
+ * no fallen si las llaman. No hay texto en composición ni candidatos. */
+static void* g_preeditCb; static void* g_imeStatusCb; static void* g_preeditCandCb;
+SHIM_EXPORT void* glfwSetPreeditCallback(GLFWwindow* w, void* cb) { (void)w; void* o = g_preeditCb; g_preeditCb = cb; return o; }
+SHIM_EXPORT void* glfwSetIMEStatusCallback(GLFWwindow* w, void* cb) { (void)w; void* o = g_imeStatusCb; g_imeStatusCb = cb; return o; }
+SHIM_EXPORT void* glfwSetPreeditCandidateCallback(GLFWwindow* w, void* cb) { (void)w; void* o = g_preeditCandCb; g_preeditCandCb = cb; return o; }
+SHIM_EXPORT void glfwResetPreeditText(GLFWwindow* w) { (void)w; }
+SHIM_EXPORT void glfwSetPreeditCursorRectangle(GLFWwindow* w, int x, int y, int ww, int hh) { (void)w; (void)x; (void)y; (void)ww; (void)hh; }
+SHIM_EXPORT void glfwGetPreeditCursorRectangle(GLFWwindow* w, int* x, int* y, int* ww, int* hh) {
+    (void)w; if (x) *x = 0; if (y) *y = 0; if (ww) *ww = 0; if (hh) *hh = 0;
+}
+SHIM_EXPORT unsigned int* glfwGetPreeditCandidate(GLFWwindow* w, int index, int* textCount) {
+    (void)w; (void)index; if (textCount) *textCount = 0; return NULL;
+}
+
 /* ---------------- Portapapeles ---------------- */
 SHIM_EXPORT void glfwSetClipboardString(GLFWwindow* w, const char* s) { (void)w; mcl_set_clipboard(s ? s : ""); }
 SHIM_EXPORT const char* glfwGetClipboardString(GLFWwindow* w) { (void)w; return mcl_get_clipboard(); }

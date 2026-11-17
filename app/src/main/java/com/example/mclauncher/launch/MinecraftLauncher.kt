@@ -49,8 +49,10 @@ class MinecraftLauncher(
          * org.lwjgl:* del version.json se sustituyen por esta versión, bajada de Maven Central,
          * para que Java y natives coincidan siempre.
          */
-        const val LWJGL_VERSION = "3.3.3"
-        /** CDN de librerías de Mojang (tiene LWJGL 3.3.3) y Maven Central como respaldo. */
+        // Minecraft 26.x está compilado contra LWJGL 3.4 (p. ej. tinyfd_messageBox devuelve int).
+        // Los natives liblwjgl*.so los compila el workflow con natives/build-natives.sh (ONLY=lwjgl).
+        const val LWJGL_VERSION = "3.4.1"
+        /** CDN de librerías de Mojang y Maven Central como respaldo. */
         /**
          * ${variable} de los argumentos del version.json. La "}" va escapada: el motor de regex
          * de Android (ICU) la rechaza sin escapar, aunque Java de escritorio la acepta.
@@ -129,6 +131,17 @@ class MinecraftLauncher(
                 }
                 add("-Dlog4j2.formatMsgNoLookups=true")
                 addAll(argList(version, "jvm", vars).ifEmpty { listOf("-Djava.library.path=$nativeDir", "-cp", classpath) })
+                // El version.json apunta estos directorios a ${natives_directory} (nativeLibraryDir,
+                // de solo lectura en Android): JNA/Netty/LWJGL no podrían extraer nada. Van al final
+                // para que ganen; dedupeJvmArgs quita los anteriores.
+                val tmp = File(context.cacheDir, "jvmtmp").absolutePath
+                add("-Djna.tmpdir=$tmp")
+                add("-Dio.netty.native.workdir=$tmp")
+                add("-Dorg.lwjgl.system.SharedLibraryExtractPath=$tmp")
+                // libjnidispatch.so compilado para Android (bionic) en jniLibs: el que trae el jar
+                // de JNA es para glibc y no carga. Lo usa OSHI para leer CPU/memoria.
+                add("-Djna.boot.library.path=$nativeDir")
+                add("-Djna.nounpack=true")
             }.let(::dedupeJvmArgs)
 
             val gameArgs = argList(version, "game", vars).ifEmpty {
@@ -227,7 +240,8 @@ class MinecraftLauncher(
 
     /** Si hay -Xmx/-Xss duplicados (version.json + nuestros), gana el último. */
     private fun dedupeJvmArgs(args: List<String>): List<String> {
-        val single = listOf("-Xmx", "-Xms", "-Xss", "-Djava.library.path=")
+        val single = listOf("-Xmx", "-Xms", "-Xss", "-Djava.library.path=", "-Djna.tmpdir=", "-Dio.netty.native.workdir=",
+            "-Dorg.lwjgl.system.SharedLibraryExtractPath=", "-Djna.boot.library.path=")
         val result = ArrayList<String>()
         for (a in args) {
             val p = single.firstOrNull { a.startsWith(it) }
@@ -292,9 +306,9 @@ class MinecraftLauncher(
             RendererType.ZINK_VULKAN, RendererType.ZINK_VULKAN_HDR -> mapOf(
                 "GALLIUM_DRIVER" to "zink",
                 "MESA_LOADER_DRIVER_OVERRIDE" to "zink",
-                // En Android no hay /dev/dri accesible: con esto el EGL "surfaceless" de Mesa salta
-                // directo a la ruta sin DRM y carga Zink (que igual usa la GPU real vía Vulkan).
-                "LIBGL_ALWAYS_SOFTWARE" to "1",
+                // OJO: NO poner LIBGL_ALWAYS_SOFTWARE=1. Zink lo interpreta como "usa una GPU de CPU
+                // (lavapipe)" y falla con "CPU device requested but none found". Sin /dev/dri, el EGL
+                // surfaceless de Mesa cae solo a la ruta sin DRM y carga Zink sobre la GPU real.
                 "MESA_GL_VERSION_OVERRIDE" to "4.6",
                 "MESA_GLSL_VERSION_OVERRIDE" to "460",
                 "MESA_NO_ERROR" to "1",

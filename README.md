@@ -57,8 +57,8 @@ files/runtimes/java-<N>/
 | Pieza | Estado |
 |---|---|
 | Proyecto Kotlin + C++ | Compila (`./gradlew assembleDebug`, AGP 8.12, NDK r28c) |
-| `libglfw.so` (cpp/glfw) | Implementa las 124 funciones de GLFW 3.4; cubre las 116 que pide LWJGL 3.3.3 |
-| LWJGL 3.3.3 natives (`liblwjgl*.so`) | Compilados desde el C oficial; todos los símbolos JNI de Linux presentes (salvo io_uring) |
+| `libglfw.so` (cpp/glfw) | Implementa la API de GLFW 3.4 + IME de 3.5 (vacías); cubre todas las que pide LWJGL 3.4.1 |
+| LWJGL 3.4.1 natives (`liblwjgl*.so`) | Los compila GitHub Actions desde el C oficial en cada build (`ONLY=lwjgl natives/build-natives.sh`) |
 | OpenAL Soft 1.23.1 | Compilado (backend OpenSL ES) |
 | FreeType 2.13.2 | Compilado |
 | gl4es | Compilado (`libgl4es_114.so`) |
@@ -88,8 +88,8 @@ Para recompilar todas las librerías nativas desde cero: `ANDROID_NDK=... ./nati
 ### Límites conocidos
 
 - **gl4es** solo da OpenGL 2.1: sirve para Minecraft ≤ 1.16. Desde 1.17 usa Zink.
-- **LWJGL** se fuerza a 3.3.3 (Minecraft 1.13 → 1.21.x). Si una versión futura exige LWJGL más nuevo,
-  cambia `LWJGL_VERSION` y `LWJGL_TAG` y recompila los natives.
+- **LWJGL** se fuerza a 3.4.1 (lo que pide Minecraft 26.x). Versiones viejas que pedían 3.3.x usan la API 3.4,
+  casi siempre compatible. Para cambiarla: `LWJGL_VERSION` (MinecraftLauncher.kt) y `LWJGL_TAG` (build-natives.sh).
 - **Minecraft 1.12 y anteriores** usan LWJGL 2: no están soportados.
 
 ## HDR: qué hace y qué no

@@ -24,6 +24,13 @@ jobs:
           yes | "$SDKM" --licenses > /dev/null || true
           "$SDKM" "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358" "cmake;3.22.1"
 
+      # Natives de LWJGL (liblwjgl*.so) desde el código oficial, misma versión que los jars
+      - name: Compilar natives de LWJGL
+        run: |
+          sudo apt-get install -y ninja-build > /dev/null
+          ANDROID_NDK="$ANDROID_HOME/ndk/28.2.13676358" CMAKE="$ANDROID_HOME/cmake/3.22.1/bin/cmake" \
+            PATH="$ANDROID_HOME/cmake/3.22.1/bin:$PATH" ONLY=lwjgl bash natives/build-natives.sh
+
       - uses: gradle/actions/setup-gradle@v4
 
       - name: Compilar (debug)

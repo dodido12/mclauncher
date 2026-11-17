@@ -21,7 +21,7 @@ BIN="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin"
 CMAKE="${CMAKE:-cmake}"
 JOBS="${JOBS:-$(nproc)}"
 
-LWJGL_TAG=3.3.3
+LWJGL_TAG="${LWJGL_TAG:-3.4.1}"   # debe coincidir con MinecraftLauncher.LWJGL_VERSION
 LIBFFI_VER=3.4.6
 OPENAL_TAG=1.23.1
 FREETYPE_TAG=VER-2-13-2
@@ -48,6 +48,13 @@ clone https://github.com/LWJGL/lwjgl3.git lwjgl3 "$LWJGL_TAG"
 "$CMAKE" -S "$HERE/lwjgl" -B b-lwjgl "${CM_ANDROID[@]}" -DLWJGL_SRC="$WORK/lwjgl3" -DLIBFFI_DIR="$WORK/out/libffi" >/dev/null
 "$CMAKE" --build b-lwjgl -j"$JOBS"
 cp b-lwjgl/liblwjgl*.so "$OUT/"
+
+# ONLY=lwjgl: solo libffi + LWJGL (lo usa el workflow de GitHub Actions en cada compilación)
+if [ "${ONLY:-}" = "lwjgl" ]; then
+  "$BIN/llvm-strip" --strip-unneeded "$OUT"/liblwjgl*.so
+  ls -la "$OUT"/liblwjgl*.so
+  exit 0
+fi
 
 echo "==> FreeType $FREETYPE_TAG"
 clone https://gitlab.freedesktop.org/freetype/freetype.git freetype "$FREETYPE_TAG"

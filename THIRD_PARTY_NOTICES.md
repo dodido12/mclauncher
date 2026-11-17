@@ -6,6 +6,7 @@
 | libdrm (estática, dentro de Mesa) | MIT | https://gitlab.freedesktop.org/mesa/drm |
 | gl4es | MIT | https://github.com/ptitSeb/gl4es |
 | LWJGL 3 | BSD-3-Clause | https://github.com/LWJGL/lwjgl3 |
+| JNA `libjnidispatch.so` (compilado para Android, tomado de ZalithLauncher) | Apache-2.0 o LGPL-2.1 | https://github.com/java-native-access/jna |
 | libffi | MIT | https://github.com/libffi/libffi |
 | OpenAL Soft | LGPL-2.1-or-later | https://github.com/kcat/openal-soft |
 | FreeType | FTL o GPLv2 | https://gitlab.freedesktop.org/freetype/freetype |
